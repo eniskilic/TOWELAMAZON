@@ -392,6 +392,9 @@ if uploaded_files:
                 })
         
         df = pd.DataFrame(records)
+        # Reset index to start from 1 instead of 0
+        df.index = range(1, len(df) + 1)
+        
         st.success(f"✅ Parsed {len(all_orders)} orders with {len(df)} items")
         
         # Create tabs
@@ -400,73 +403,120 @@ if uploaded_files:
         with tab1:
             st.subheader("Order Data")
             
-            # Filters
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                product_filter = st.multiselect(
-                    "Filter by Product Type",
-                    options=sorted(df['Product Type'].unique()),
-                    default=sorted(df['Product Type'].unique())
-                )
-            
-            with col2:
-                color_filter = st.multiselect(
-                    "Filter by Color",
-                    options=sorted(df['Color'].unique()),
-                    default=sorted(df['Color'].unique())
-                )
-            
-            with col3:
-                gift_filter = st.selectbox(
-                    "Gift Messages",
-                    options=['All', 'With Gift', 'No Gift']
-                )
-            
-            # Apply filters
-            filtered_df = df[
-                (df['Product Type'].isin(product_filter)) &
-                (df['Color'].isin(color_filter))
-            ]
-            
-            if gift_filter == 'With Gift':
-                filtered_df = filtered_df[filtered_df['Gift Message'] == 'YES']
-            elif gift_filter == 'No Gift':
-                filtered_df = filtered_df[filtered_df['Gift Message'] == 'NO']
-            
-            # Display table
-            display_df = filtered_df.drop(columns=['_order_obj', '_item_obj'])
+            # Display table (no filters)
+            display_df = df.drop(columns=['_order_obj', '_item_obj'])
             st.dataframe(display_df, use_container_width=True, height=400)
             
-            # Export buttons
+            # Export buttons (side by side)
             col1, col2 = st.columns(2)
             with col1:
-                csv = display_df.to_csv(index=False).encode('utf-8')
+                csv = display_df.to_csv(index=True).encode('utf-8')
                 st.download_button(
                     "📥 Export to CSV",
                     csv,
                     "towel_orders.csv",
-                    "text/csv"
+                    "text/csv",
+                    use_container_width=True
                 )
             
             with col2:
                 buffer = BytesIO()
                 with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                    display_df.to_excel(writer, index=False, sheet_name='Orders')
+                    display_df.to_excel(writer, index=True, sheet_name='Orders')
                 st.download_button(
                     "📥 Export to Excel",
                     buffer.getvalue(),
                     "towel_orders.xlsx",
-                    "application/vnd.ms-excel"
+                    "application/vnd.ms-excel",
+                    use_container_width=True
                 )
+            
+            st.markdown("---")
+            
+            # Generate ALL Manufacturing Labels button
+            if st.button("🏷️ Generate ALL Manufacturing Labels", type="primary", use_container_width=True):
+                with st.spinner("Generating all manufacturing labels..."):
+                    output = BytesIO()
+                    c = canvas.Canvas(output, pagesize=landscape((4 * inch, 6 * inch)))
+                    
+                    for idx, row in df.iterrows():
+                        order_obj = row['_order_obj']
+                        item_obj = row['_item_obj']
+                        
+                        label_data = {
+                            'order_id': order_obj['order_id'],
+                            'buyer': order_obj['buyer_name'],
+                            'date': order_obj['order_date'],
+                            'shipping': order_obj['shipping_service'],
+                            'quantity': item_obj['quantity'],
+                            'product_type': item_obj['product_type'],
+                            'towel_color': item_obj['towel_color'],
+                            'thread_color': item_obj['font_color'],
+                            'font': item_obj['font'],
+                            'customizations': item_obj['customizations'],
+                            'has_gift_note': bool(item_obj['gift_message'])
+                        }
+                        
+                        generate_manufacturing_label(c, label_data)
+                        c.showPage()
+                    
+                    c.save()
+                    output.seek(0)
+                    
+                    st.download_button(
+                        "📥 Download ALL Manufacturing Labels PDF",
+                        output.getvalue(),
+                        "all_manufacturing_labels.pdf",
+                        "application/pdf",
+                        use_container_width=True
+                    )
+                    st.success(f"✅ Generated {len(df)} manufacturing labels")
+            
+            # Generate ALL Gift Notes button (only for items with gift messages)
+            gift_items_count = len(df[df['Gift Message'] == 'YES'])
+            
+            if gift_items_count > 0:
+                if st.button(f"🎁 Generate ALL Gift Notes ({gift_items_count} items)", type="secondary", use_container_width=True):
+                    with st.spinner("Generating all gift notes..."):
+                        output = BytesIO()
+                        c = canvas.Canvas(output, pagesize=landscape((4 * inch, 6 * inch)))
+                        
+                        count = 0
+                        for idx, row in df.iterrows():
+                            if row['Gift Message'] == 'YES':
+                                order_obj = row['_order_obj']
+                                item_obj = row['_item_obj']
+                                
+                                generate_gift_note(
+                                    c, 
+                                    order_obj['order_id'],
+                                    order_obj['buyer_name'],
+                                    item_obj['gift_message']
+                                )
+                                c.showPage()
+                                count += 1
+                        
+                        c.save()
+                        output.seek(0)
+                        
+                        st.download_button(
+                            "📥 Download ALL Gift Notes PDF",
+                            output.getvalue(),
+                            "all_gift_notes.pdf",
+                            "application/pdf",
+                            use_container_width=True
+                        )
+                        st.success(f"✅ Generated {count} gift notes")
+            else:
+                st.info("ℹ️ No gift messages in current orders")
         
         with tab2:
             st.subheader("Manufacturing Labels")
-            st.markdown("Select items to generate labels (6×4 inch landscape)")
+            st.markdown("Select specific items to generate labels (6×4 inch landscape)")
             
             # Selection
             selected_indices = []
-            for idx, row in filtered_df.iterrows():
+            for idx, row in df.iterrows():
                 col1, col2 = st.columns([0.1, 0.9])
                 with col1:
                     if st.checkbox("", key=f"mfg_{idx}"):
@@ -481,7 +531,7 @@ if uploaded_files:
                         c = canvas.Canvas(output, pagesize=landscape((4 * inch, 6 * inch)))
                         
                         for idx in selected_indices:
-                            row = filtered_df.loc[idx]
+                            row = df.loc[idx]
                             order_obj = row['_order_obj']
                             item_obj = row['_item_obj']
                             
@@ -519,7 +569,7 @@ if uploaded_files:
             st.subheader("Gift Note Labels")
             
             # Filter items with gift messages
-            gift_items = filtered_df[filtered_df['Gift Message'] == 'YES']
+            gift_items = df[df['Gift Message'] == 'YES']
             
             if len(gift_items) > 0:
                 st.markdown(f"**{len(gift_items)} orders with gift messages**")
@@ -567,6 +617,6 @@ if uploaded_files:
                 else:
                     st.info("Select gift notes above to generate")
             else:
-                st.info("No orders with gift messages found in current filter")
+                st.info("No orders with gift messages found")
 else:
     st.info("👆 Upload PDF files to get started")

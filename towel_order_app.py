@@ -85,6 +85,8 @@ def parse_towel_orders(pdf_file):
                         
                         # Parse SKU for product type and color
                         towel_color = sku.split('-')[-1].strip()
+                        # Clean up color - remove any tax/price text that got captured
+                        towel_color = re.split(r'\s+(?:Tax|Item|total|\$)', towel_color)[0].strip()
                         
                         customizations = []
                         product_type = ''

@@ -367,6 +367,10 @@ uploaded_files = st.file_uploader(
 )
 
 if uploaded_files:
+    # Clear previous session data when new files are uploaded
+    st.session_state['mfg_labels_pdf'] = None
+    st.session_state['gift_notes_pdf'] = None
+    
     # Parse all files
     all_orders = []
     
@@ -420,6 +424,10 @@ if uploaded_files:
             with col1:
                 generate_clicked = st.button("🏷️ Generate ALL Manufacturing Labels", type="primary", use_container_width=True)
             
+            with col2:
+                # Empty placeholder - will be filled after generation
+                download_placeholder = st.empty()
+            
             if generate_clicked:
                 with st.spinner("Generating all manufacturing labels..."):
                     output = BytesIO()
@@ -452,16 +460,27 @@ if uploaded_files:
                     # Store in session state
                     st.session_state['mfg_labels_pdf'] = output.getvalue()
                     st.success(f"✅ Generated {len(df)} manufacturing labels")
-            
-            # Show download button in col2 if labels were generated
-            with col2:
-                if 'mfg_labels_pdf' in st.session_state:
+                    
+                    # Show download button immediately after generation
+                    with download_placeholder:
+                        st.download_button(
+                            "📥 Download PDF",
+                            st.session_state['mfg_labels_pdf'],
+                            "all_manufacturing_labels.pdf",
+                            "application/pdf",
+                            use_container_width=True,
+                            key="download_mfg_after_gen"
+                        )
+            elif 'mfg_labels_pdf' in st.session_state and st.session_state['mfg_labels_pdf']:
+                # Show download button if labels exist from this session
+                with download_placeholder:
                     st.download_button(
                         "📥 Download PDF",
                         st.session_state['mfg_labels_pdf'],
                         "all_manufacturing_labels.pdf",
                         "application/pdf",
-                        use_container_width=True
+                        use_container_width=True,
+                        key="download_mfg_existing"
                     )
             
             # Export buttons (side by side, below manufacturing labels)
@@ -498,6 +517,10 @@ if uploaded_files:
                 with col1:
                     gift_generate_clicked = st.button(f"🎁 Generate ALL Gift Notes ({gift_items_count} items)", type="secondary", use_container_width=True)
                 
+                with col2:
+                    # Empty placeholder - will be filled after generation
+                    gift_download_placeholder = st.empty()
+                
                 if gift_generate_clicked:
                     with st.spinner("Generating all gift notes..."):
                         output = BytesIO()
@@ -524,16 +547,27 @@ if uploaded_files:
                         # Store in session state
                         st.session_state['gift_notes_pdf'] = output.getvalue()
                         st.success(f"✅ Generated {count} gift notes")
-                
-                # Show download button in col2 if gift notes were generated
-                with col2:
-                    if 'gift_notes_pdf' in st.session_state and st.session_state['gift_notes_pdf']:
+                        
+                        # Show download button immediately after generation
+                        with gift_download_placeholder:
+                            st.download_button(
+                                "📥 Download PDF",
+                                st.session_state['gift_notes_pdf'],
+                                "all_gift_notes.pdf",
+                                "application/pdf",
+                                use_container_width=True,
+                                key="download_gift_after_gen"
+                            )
+                elif 'gift_notes_pdf' in st.session_state and st.session_state['gift_notes_pdf']:
+                    # Show download button if gift notes exist from this session
+                    with gift_download_placeholder:
                         st.download_button(
                             "📥 Download PDF",
                             st.session_state['gift_notes_pdf'],
                             "all_gift_notes.pdf",
                             "application/pdf",
-                            use_container_width=True
+                            use_container_width=True,
+                            key="download_gift_existing"
                         )
             else:
                 st.info("ℹ️ No gift messages in current orders")

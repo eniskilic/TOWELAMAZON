@@ -11,6 +11,12 @@ from reportlab.lib.utils import simpleSplit
 # Page config
 st.set_page_config(page_title="Towel Order Parser", layout="wide", page_icon="🧺")
 
+# Initialize session state
+if 'mfg_labels_pdf' not in st.session_state:
+    st.session_state['mfg_labels_pdf'] = None
+if 'gift_notes_pdf' not in st.session_state:
+    st.session_state['gift_notes_pdf'] = None
+
 def parse_towel_orders(pdf_file):
     """Parse Amazon towel order PDFs"""
     orders = []
@@ -407,34 +413,12 @@ if uploaded_files:
             display_df = df.drop(columns=['_order_obj', '_item_obj'])
             st.dataframe(display_df, use_container_width=True, height=400)
             
-            # Export buttons (side by side)
+            # Generate ALL Manufacturing Labels button (with download button next to it)
             col1, col2 = st.columns(2)
             with col1:
-                csv = display_df.to_csv(index=True).encode('utf-8')
-                st.download_button(
-                    "📥 Export to CSV",
-                    csv,
-                    "towel_orders.csv",
-                    "text/csv",
-                    use_container_width=True
-                )
+                generate_clicked = st.button("🏷️ Generate ALL Manufacturing Labels", type="primary", use_container_width=True)
             
-            with col2:
-                buffer = BytesIO()
-                with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                    display_df.to_excel(writer, index=True, sheet_name='Orders')
-                st.download_button(
-                    "📥 Export to Excel",
-                    buffer.getvalue(),
-                    "towel_orders.xlsx",
-                    "application/vnd.ms-excel",
-                    use_container_width=True
-                )
-            
-            st.markdown("---")
-            
-            # Generate ALL Manufacturing Labels button
-            if st.button("🏷️ Generate ALL Manufacturing Labels", type="primary", use_container_width=True):
+            if generate_clicked:
                 with st.spinner("Generating all manufacturing labels..."):
                     output = BytesIO()
                     c = canvas.Canvas(output, pagesize=landscape((4 * inch, 6 * inch)))
@@ -463,20 +447,56 @@ if uploaded_files:
                     c.save()
                     output.seek(0)
                     
+                    # Store in session state
+                    st.session_state['mfg_labels_pdf'] = output.getvalue()
+                    st.success(f"✅ Generated {len(df)} manufacturing labels")
+            
+            # Show download button in col2 if labels were generated
+            with col2:
+                if 'mfg_labels_pdf' in st.session_state:
                     st.download_button(
-                        "📥 Download ALL Manufacturing Labels PDF",
-                        output.getvalue(),
+                        "📥 Download PDF",
+                        st.session_state['mfg_labels_pdf'],
                         "all_manufacturing_labels.pdf",
                         "application/pdf",
                         use_container_width=True
                     )
-                    st.success(f"✅ Generated {len(df)} manufacturing labels")
+            
+            # Export buttons (side by side, below manufacturing labels)
+            col1, col2 = st.columns(2)
+            with col1:
+                csv = display_df.to_csv(index=True).encode('utf-8')
+                st.download_button(
+                    "📥 Export to CSV",
+                    csv,
+                    "towel_orders.csv",
+                    "text/csv",
+                    use_container_width=True
+                )
+            
+            with col2:
+                buffer = BytesIO()
+                with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                    display_df.to_excel(writer, index=True, sheet_name='Orders')
+                st.download_button(
+                    "📥 Export to Excel",
+                    buffer.getvalue(),
+                    "towel_orders.xlsx",
+                    "application/vnd.ms-excel",
+                    use_container_width=True
+                )
+            
+            st.markdown("---")
             
             # Generate ALL Gift Notes button (only for items with gift messages)
             gift_items_count = len(df[df['Gift Message'] == 'YES'])
             
             if gift_items_count > 0:
-                if st.button(f"🎁 Generate ALL Gift Notes ({gift_items_count} items)", type="secondary", use_container_width=True):
+                col1, col2 = st.columns(2)
+                with col1:
+                    gift_generate_clicked = st.button(f"🎁 Generate ALL Gift Notes ({gift_items_count} items)", type="secondary", use_container_width=True)
+                
+                if gift_generate_clicked:
                     with st.spinner("Generating all gift notes..."):
                         output = BytesIO()
                         c = canvas.Canvas(output, pagesize=landscape((4 * inch, 6 * inch)))
@@ -499,14 +519,20 @@ if uploaded_files:
                         c.save()
                         output.seek(0)
                         
+                        # Store in session state
+                        st.session_state['gift_notes_pdf'] = output.getvalue()
+                        st.success(f"✅ Generated {count} gift notes")
+                
+                # Show download button in col2 if gift notes were generated
+                with col2:
+                    if 'gift_notes_pdf' in st.session_state and st.session_state['gift_notes_pdf']:
                         st.download_button(
-                            "📥 Download ALL Gift Notes PDF",
-                            output.getvalue(),
+                            "📥 Download PDF",
+                            st.session_state['gift_notes_pdf'],
                             "all_gift_notes.pdf",
                             "application/pdf",
                             use_container_width=True
                         )
-                        st.success(f"✅ Generated {count} gift notes")
             else:
                 st.info("ℹ️ No gift messages in current orders")
         

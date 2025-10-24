@@ -274,19 +274,6 @@ def generate_manufacturing_label(c, data, is_first=True):
     col_y -= 0.18 * inch  # Increased spacing
     c.setFont("Helvetica-Bold", 13)  # Made BOLD
     c.drawCentredString(col_center, col_y, data['thread_color'].upper())
-    col_y -= 0.3 * inch  # More space before divider
-    
-    # Divider
-    c.setLineWidth(0.5)
-    c.line(left + 0.05 * inch, col_y, left_col_right - 0.05 * inch, col_y)
-    col_y -= 0.22 * inch  # More space after divider
-    
-    # Font (centered, BOLD)
-    c.setFont("Helvetica", 8)
-    c.drawCentredString(col_center, col_y, "FONT:")
-    col_y -= 0.18 * inch  # Increased spacing
-    c.setFont("Helvetica-Bold", 12)  # Made BOLD
-    c.drawCentredString(col_center, col_y, data['font'].upper())
     
     # ========== RIGHT COLUMN: PERSONALIZATION ==========
     col_y = content_top - 0.12 * inch

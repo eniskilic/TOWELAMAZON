@@ -200,11 +200,11 @@ def generate_manufacturing_label(c, data, is_first=True):
             c.setFont("Helvetica-Bold", 15)
         qty_text = f"QTY: {data['quantity']}"
         qty_width = c.stringWidth(qty_text, c._fontname, c._fontsize)
-        c.drawRightString(right - 0.75 * inch, y, qty_text)
+        c.drawRightString(right - 0.85 * inch, y, qty_text)
         
-        # Item counter badge [2 of 3]
-        c.setFont("Helvetica-Bold", 10)
-        badge_text = f"[{data['item_number']} of {data['item_count']}]"
+        # Item counter badge with warning triangle [2 of 3]
+        c.setFont("Helvetica-Bold", 11)
+        badge_text = f"▲ [{data['item_number']} of {data['item_count']}]"
         c.drawRightString(right, y, badge_text)
     else:
         # Single item - just show QTY

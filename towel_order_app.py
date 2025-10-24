@@ -188,13 +188,32 @@ def generate_manufacturing_label(c, data, is_first=True):
     c.setFont("Helvetica-Bold", 13)
     c.drawString(left, y, data['buyer'])
     
-    # QTY (enlarge by 4pts = 15pt, italic if > 2)
+    # QTY and Item Counter Badge
     qty_value = int(data['quantity'])
-    if qty_value > 2:
-        c.setFont("Helvetica-BoldOblique", 15)
+    
+    # Show item counter badge only if order has multiple items
+    if data['item_count'] > 1:
+        # QTY label
+        if qty_value > 2:
+            c.setFont("Helvetica-BoldOblique", 15)
+        else:
+            c.setFont("Helvetica-Bold", 15)
+        qty_text = f"QTY: {data['quantity']}"
+        qty_width = c.stringWidth(qty_text, c._fontname, c._fontsize)
+        c.drawRightString(right - 0.75 * inch, y, qty_text)
+        
+        # Item counter badge [2 of 3]
+        c.setFont("Helvetica-Bold", 10)
+        badge_text = f"[{data['item_number']} of {data['item_count']}]"
+        c.drawRightString(right, y, badge_text)
     else:
-        c.setFont("Helvetica-Bold", 15)
-    c.drawRightString(right, y, f"QTY: {data['quantity']}")
+        # Single item - just show QTY
+        if qty_value > 2:
+            c.setFont("Helvetica-BoldOblique", 15)
+        else:
+            c.setFont("Helvetica-Bold", 15)
+        c.drawRightString(right, y, f"QTY: {data['quantity']}")
+    
     y -= 0.16 * inch
     
     # Order ID (regular, 11pt)
@@ -414,6 +433,10 @@ if uploaded_files:
         # Reset index to start from 1 instead of 0
         df.index = range(1, len(df) + 1)
         
+        # Add item counter for multi-item orders
+        df['item_count'] = df.groupby('Order ID')['Order ID'].transform('count')
+        df['item_number'] = df.groupby('Order ID').cumcount() + 1
+        
         st.success(f"✅ Parsed {len(all_orders)} orders with {len(df)} items")
         
         # Create tabs
@@ -455,7 +478,9 @@ if uploaded_files:
                             'thread_color': item_obj['font_color'],
                             'font': item_obj['font'],
                             'customizations': item_obj['customizations'],
-                            'has_gift_note': bool(item_obj['gift_message'])
+                            'has_gift_note': bool(item_obj['gift_message']),
+                            'item_number': row['item_number'],
+                            'item_count': row['item_count']
                         }
                         
                         generate_manufacturing_label(c, label_data)
@@ -615,7 +640,9 @@ if uploaded_files:
                                 'thread_color': item_obj['font_color'],
                                 'font': item_obj['font'],
                                 'customizations': item_obj['customizations'],
-                                'has_gift_note': bool(item_obj['gift_message'])
+                                'has_gift_note': bool(item_obj['gift_message']),
+                                'item_number': row['item_number'],
+                                'item_count': row['item_count']
                             }
                             
                             generate_manufacturing_label(c, label_data)

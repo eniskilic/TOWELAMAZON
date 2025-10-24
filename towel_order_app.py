@@ -297,15 +297,15 @@ def generate_manufacturing_label(c, data, is_first=True):
     
     for i, (label, text) in enumerate(data['customizations']):
         if col_y > content_bottom + 0.2 * inch:
-            # Label (small, regular font)
-            c.setFont("Helvetica", 7)
+            # Label (11pt, regular font)
+            c.setFont("Helvetica", 11)
             c.drawString(right_col_left + 0.08 * inch, col_y, f"{label}:")
-            col_y -= 0.15 * inch  # Space between label and text
+            col_y -= 0.18 * inch  # More space between label and text
             
-            # Personalization text (large, bold)
-            c.setFont("Helvetica-Bold", 15)  # Larger - 15pt for visibility
+            # Personalization text (15pt, bold italic)
+            c.setFont("Helvetica-BoldOblique", 15)
             c.drawString(right_col_left + 0.08 * inch, col_y, text)
-            col_y -= 0.22 * inch  # More space between items
+            col_y -= 0.24 * inch  # More space between items
     
     # ============ BOTTOM: GIFT MESSAGE BOX ============
     y_bottom = content_bottom - 0.15 * inch

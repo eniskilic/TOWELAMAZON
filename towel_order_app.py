@@ -183,15 +183,32 @@ def generate_manufacturing_label(c, data, is_first=True):
     else:
         y = H - 0.25 * inch
     
-    # ============ HEADER: ORDER INFO ============
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(left, y, f"Order: {data['order_id']}")
+    # ============ HEADER: BUYER NAME & ORDER INFO ============
+    # Buyer name (bold, 13pt)
+    c.setFont("Helvetica-Bold", 13)
+    c.drawString(left, y, data['buyer'])
+    
+    # QTY (enlarge by 4pts = 15pt, italic if > 2)
+    qty_value = int(data['quantity'])
+    if qty_value > 2:
+        c.setFont("Helvetica-BoldOblique", 15)
+    else:
+        c.setFont("Helvetica-Bold", 15)
     c.drawRightString(right, y, f"QTY: {data['quantity']}")
     y -= 0.16 * inch
     
+    # Order ID (regular, 11pt)
+    c.setFont("Helvetica", 11)
+    c.drawString(left, y, f"Order: {data['order_id']}")
+    
+    # Shipping
     c.setFont("Helvetica", 9)
-    c.drawString(left, y, f"{data['buyer']} • {data['date']}")
     c.drawRightString(right, y, data['shipping'])
+    y -= 0.15 * inch
+    
+    # Date
+    c.setFont("Helvetica", 9)
+    c.drawString(left, y, data['date'])
     y -= 0.22 * inch
     
     # Thick divider
@@ -223,52 +240,53 @@ def generate_manufacturing_label(c, data, is_first=True):
     
     # ========== LEFT COLUMN: PRODUCT SPECS ==========
     col_y = content_top - 0.12 * inch
+    col_center = left + (left_col_width / 2)
     
-    # Product Type
+    # Product Type (label + value with spacing)
     c.setFont("Helvetica", 8)
-    c.drawString(left + 0.08 * inch, col_y, "PRODUCT TYPE:")
-    c.setFont("Helvetica-Bold", 11)
-    col_y -= 0.13 * inch
-    c.drawString(left + 0.08 * inch, col_y, data['product_type'])
-    col_y -= 0.2 * inch
-    
-    # Divider
-    c.setLineWidth(0.5)
-    c.line(left + 0.05 * inch, col_y, left_col_right - 0.05 * inch, col_y)
-    col_y -= 0.15 * inch
-    
-    # Color (ALL CAPS)
-    c.setFont("Helvetica", 8)
-    c.drawString(left + 0.08 * inch, col_y, "COLOR:")
-    c.setFont("Helvetica-Bold", 16)
+    c.drawCentredString(col_center, col_y, "PRODUCT TYPE:")
     col_y -= 0.18 * inch
-    c.drawString(left + 0.08 * inch, col_y, data['towel_color'].upper())
+    c.setFont("Helvetica", 11)
+    c.drawCentredString(col_center, col_y, data['product_type'].upper())
     col_y -= 0.25 * inch
     
     # Divider
     c.setLineWidth(0.5)
     c.line(left + 0.05 * inch, col_y, left_col_right - 0.05 * inch, col_y)
-    col_y -= 0.15 * inch
+    col_y -= 0.18 * inch
     
-    # Thread Color
+    # Color (ALL CAPS, centered)
     c.setFont("Helvetica", 8)
-    c.drawString(left + 0.08 * inch, col_y, "THREAD COLOR:")
-    c.setFont("Helvetica-Bold", 13)
-    col_y -= 0.15 * inch
-    c.drawString(left + 0.08 * inch, col_y, data['thread_color'])
-    col_y -= 0.22 * inch
+    c.drawCentredString(col_center, col_y, "COLOR:")
+    col_y -= 0.18 * inch
+    c.setFont("Helvetica", 16)
+    c.drawCentredString(col_center, col_y, data['towel_color'].upper())
+    col_y -= 0.28 * inch
     
     # Divider
     c.setLineWidth(0.5)
     c.line(left + 0.05 * inch, col_y, left_col_right - 0.05 * inch, col_y)
-    col_y -= 0.15 * inch
+    col_y -= 0.18 * inch
     
-    # Font
+    # Thread Color (centered)
     c.setFont("Helvetica", 8)
-    c.drawString(left + 0.08 * inch, col_y, "FONT:")
-    c.setFont("Helvetica-Bold", 12)
-    col_y -= 0.14 * inch
-    c.drawString(left + 0.08 * inch, col_y, data['font'])
+    c.drawCentredString(col_center, col_y, "THREAD COLOR:")
+    col_y -= 0.16 * inch
+    c.setFont("Helvetica", 13)
+    c.drawCentredString(col_center, col_y, data['thread_color'].upper())
+    col_y -= 0.25 * inch
+    
+    # Divider
+    c.setLineWidth(0.5)
+    c.line(left + 0.05 * inch, col_y, left_col_right - 0.05 * inch, col_y)
+    col_y -= 0.18 * inch
+    
+    # Font (centered)
+    c.setFont("Helvetica", 8)
+    c.drawCentredString(col_center, col_y, "FONT:")
+    col_y -= 0.15 * inch
+    c.setFont("Helvetica", 12)
+    c.drawCentredString(col_center, col_y, data['font'].upper())
     
     # ========== RIGHT COLUMN: PERSONALIZATION ==========
     col_y = content_top - 0.12 * inch
@@ -282,7 +300,8 @@ def generate_manufacturing_label(c, data, is_first=True):
             c.setFont("Helvetica", 8)
             c.drawString(right_col_left + 0.08 * inch, col_y, f"{label}:")
             
-            c.setFont("Helvetica-Bold", 11)
+            # Enlarged by 2pts: 11pt -> 13pt
+            c.setFont("Helvetica-Bold", 13)
             col_y -= 0.12 * inch
             c.drawString(right_col_left + 0.08 * inch, col_y, text)
             col_y -= 0.16 * inch

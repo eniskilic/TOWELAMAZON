@@ -440,7 +440,7 @@ if uploaded_files:
         st.success(f"✅ Parsed {len(all_orders)} orders with {len(df)} items")
         
         # Create tabs
-        tab1, tab2, tab3 = st.tabs(["📊 Table View", "🏷️ Manufacturing Labels", "🎁 Gift Notes"])
+        tab1, tab2, tab3, tab4 = st.tabs(["📊 Table View", "📋 Manufacturing Plan", "🏷️ Manufacturing Labels", "🎁 Gift Notes"])
         
         with tab1:
             st.subheader("Order Data")
@@ -605,6 +605,138 @@ if uploaded_files:
                 st.info("ℹ️ No gift messages in current orders")
         
         with tab2:
+            st.subheader("📋 Manufacturing Plan - Production Summary")
+            st.markdown("*Daily production overview organized by thread color, towel color, and product type*")
+            
+            # Convert 6-pc sets to manufacturing units (2x 3-pc sets)
+            df_mfg = df.copy()
+            
+            # Calculate manufacturing units
+            # 6-pc set = 2 washcloths + 2 hand towels + 2 bath towels (treat as 2x 3-pc for production)
+            def calc_mfg_units(row):
+                qty = int(row['Quantity'])
+                product = row['Product Type']
+                
+                if '6-pc' in product.lower():
+                    return qty * 2  # 6-pc set = 2 production units
+                else:
+                    return qty
+            
+            df_mfg['Mfg_Units'] = df_mfg.apply(calc_mfg_units, axis=1)
+            
+            # Overall Summary
+            st.markdown("### 📊 Overall Summary")
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("Total Orders", len(df['Order ID'].unique()))
+            with col2:
+                st.metric("Total Line Items", len(df))
+            with col3:
+                total_sets = df_mfg['Mfg_Units'].sum()
+                st.metric("Production Units", int(total_sets))
+            with col4:
+                gift_count = len(df[df['Gift Message'] == 'YES'])
+                st.metric("Gift Notes", gift_count)
+            
+            st.markdown("---")
+            
+            # Thread Color Breakdown
+            st.markdown("### 🧵 Thread Color Breakdown")
+            st.markdown("*Number of towel sets to embroider in each thread color*")
+            
+            thread_summary = df_mfg.groupby('Thread Color').agg({
+                'Mfg_Units': 'sum',
+                'Order ID': 'count'
+            }).rename(columns={'Mfg_Units': 'Sets to Embroider', 'Order ID': 'Line Items'})
+            thread_summary = thread_summary.sort_values('Sets to Embroider', ascending=False)
+            thread_summary['Sets to Embroider'] = thread_summary['Sets to Embroider'].astype(int)
+            
+            # Display as columns for easy scanning
+            thread_cols = st.columns(min(len(thread_summary), 4))
+            for idx, (thread_color, row) in enumerate(thread_summary.iterrows()):
+                with thread_cols[idx % 4]:
+                    st.metric(
+                        label=f"🧵 {thread_color}",
+                        value=f"{row['Sets to Embroider']} sets",
+                        delta=f"{row['Line Items']} items"
+                    )
+            
+            st.markdown("---")
+            
+            # Towel Color Breakdown
+            st.markdown("### 🎨 Towel Color Breakdown")
+            st.markdown("*Number of towel sets needed in each color*")
+            
+            color_summary = df_mfg.groupby('Color').agg({
+                'Mfg_Units': 'sum',
+                'Order ID': 'count'
+            }).rename(columns={'Mfg_Units': 'Sets Needed', 'Order ID': 'Line Items'})
+            color_summary = color_summary.sort_values('Sets Needed', ascending=False)
+            color_summary['Sets Needed'] = color_summary['Sets Needed'].astype(int)
+            
+            # Display as columns
+            color_cols = st.columns(min(len(color_summary), 4))
+            for idx, (color, row) in enumerate(color_summary.iterrows()):
+                with color_cols[idx % 4]:
+                    st.metric(
+                        label=f"🎨 {color}",
+                        value=f"{row['Sets Needed']} sets",
+                        delta=f"{row['Line Items']} items"
+                    )
+            
+            st.markdown("---")
+            
+            # Product Type Breakdown
+            st.markdown("### 📦 Product Type Breakdown")
+            st.markdown("*6-pc sets are counted as 2 production units (2x 3-pc sets)*")
+            
+            product_summary = df_mfg.groupby('Product Type').agg({
+                'Quantity': 'sum',
+                'Mfg_Units': 'sum',
+                'Order ID': 'count'
+            }).rename(columns={'Quantity': 'Ordered Qty', 'Mfg_Units': 'Production Units', 'Order ID': 'Line Items'})
+            product_summary = product_summary.sort_values('Production Units', ascending=False)
+            product_summary['Ordered Qty'] = product_summary['Ordered Qty'].astype(int)
+            product_summary['Production Units'] = product_summary['Production Units'].astype(int)
+            
+            st.dataframe(product_summary, use_container_width=True)
+            
+            st.markdown("---")
+            
+            # Detailed Color x Thread Matrix
+            st.markdown("### 🎯 Color × Thread Matrix")
+            st.markdown("*Production units needed for each color/thread combination*")
+            
+            matrix_data = df_mfg.groupby(['Color', 'Thread Color'])['Mfg_Units'].sum().unstack(fill_value=0)
+            matrix_data = matrix_data.astype(int)
+            
+            # Add row and column totals
+            matrix_data['TOTAL'] = matrix_data.sum(axis=1)
+            matrix_data.loc['TOTAL'] = matrix_data.sum()
+            
+            st.dataframe(matrix_data, use_container_width=True)
+            
+            st.markdown("---")
+            
+            # Production Checklist
+            st.markdown("### ✅ Production Checklist")
+            
+            checklist_col1, checklist_col2 = st.columns(2)
+            
+            with checklist_col1:
+                st.markdown("**🧵 Thread Setup Required:**")
+                for thread_color in thread_summary.index:
+                    count = int(thread_summary.loc[thread_color, 'Sets to Embroider'])
+                    st.checkbox(f"{thread_color} ({count} sets)", key=f"thread_check_{thread_color}")
+            
+            with checklist_col2:
+                st.markdown("**🎨 Towel Colors Needed:**")
+                for color in color_summary.index:
+                    count = int(color_summary.loc[color, 'Sets Needed'])
+                    st.checkbox(f"{color} ({count} sets)", key=f"color_check_{color}")
+        
+        with tab3:
             st.subheader("Manufacturing Labels")
             st.markdown("Select specific items to generate labels (6×4 inch landscape)")
             
@@ -661,7 +793,7 @@ if uploaded_files:
             else:
                 st.info("Select items above to generate labels")
         
-        with tab3:
+        with tab4:
             st.subheader("Gift Note Labels")
             
             # Filter items with gift messages

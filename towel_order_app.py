@@ -245,47 +245,47 @@ def generate_manufacturing_label(c, data, is_first=True):
     # Product Type (label + value with spacing)
     c.setFont("Helvetica", 8)
     c.drawCentredString(col_center, col_y, "PRODUCT TYPE:")
-    col_y -= 0.18 * inch
-    c.setFont("Helvetica", 11)
+    col_y -= 0.2 * inch  # Increased spacing
+    c.setFont("Helvetica-Bold", 11)  # Made BOLD
     c.drawCentredString(col_center, col_y, data['product_type'].upper())
-    col_y -= 0.25 * inch
+    col_y -= 0.3 * inch  # More space before divider
     
     # Divider
     c.setLineWidth(0.5)
     c.line(left + 0.05 * inch, col_y, left_col_right - 0.05 * inch, col_y)
-    col_y -= 0.18 * inch
+    col_y -= 0.22 * inch  # More space after divider
     
-    # Color (ALL CAPS, centered)
+    # Color (ALL CAPS, centered, BOLD)
     c.setFont("Helvetica", 8)
     c.drawCentredString(col_center, col_y, "COLOR:")
-    col_y -= 0.18 * inch
-    c.setFont("Helvetica", 16)
+    col_y -= 0.2 * inch  # Increased spacing
+    c.setFont("Helvetica-Bold", 16)  # Made BOLD
     c.drawCentredString(col_center, col_y, data['towel_color'].upper())
-    col_y -= 0.28 * inch
+    col_y -= 0.32 * inch  # More space before divider
     
     # Divider
     c.setLineWidth(0.5)
     c.line(left + 0.05 * inch, col_y, left_col_right - 0.05 * inch, col_y)
-    col_y -= 0.18 * inch
+    col_y -= 0.22 * inch  # More space after divider
     
-    # Thread Color (centered)
+    # Thread Color (centered, BOLD)
     c.setFont("Helvetica", 8)
     c.drawCentredString(col_center, col_y, "THREAD COLOR:")
-    col_y -= 0.16 * inch
-    c.setFont("Helvetica", 13)
+    col_y -= 0.18 * inch  # Increased spacing
+    c.setFont("Helvetica-Bold", 13)  # Made BOLD
     c.drawCentredString(col_center, col_y, data['thread_color'].upper())
-    col_y -= 0.25 * inch
+    col_y -= 0.3 * inch  # More space before divider
     
     # Divider
     c.setLineWidth(0.5)
     c.line(left + 0.05 * inch, col_y, left_col_right - 0.05 * inch, col_y)
-    col_y -= 0.18 * inch
+    col_y -= 0.22 * inch  # More space after divider
     
-    # Font (centered)
+    # Font (centered, BOLD)
     c.setFont("Helvetica", 8)
     c.drawCentredString(col_center, col_y, "FONT:")
-    col_y -= 0.15 * inch
-    c.setFont("Helvetica", 12)
+    col_y -= 0.18 * inch  # Increased spacing
+    c.setFont("Helvetica-Bold", 12)  # Made BOLD
     c.drawCentredString(col_center, col_y, data['font'].upper())
     
     # ========== RIGHT COLUMN: PERSONALIZATION ==========

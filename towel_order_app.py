@@ -17,6 +17,47 @@ if 'mfg_labels_pdf' not in st.session_state:
 if 'gift_notes_pdf' not in st.session_state:
     st.session_state['gift_notes_pdf'] = None
 
+# Color translations (English to Spanish)
+COLOR_TRANSLATIONS = {
+    'WHITE': 'Blanco',
+    'BLACK': 'Negro',
+    'NAVY': 'Azul Marino',
+    'NAVY BLUE': 'Azul Marino',
+    'GOLD': 'Oro',
+    'SILVER': 'Plata',
+    'RED': 'Rojo',
+    'BLUE': 'Azul',
+    'MID BLUE': 'Azul Medio',
+    'LIGHT BLUE': 'Azul Claro',
+    'DARK BLUE': 'Azul Oscuro',
+    'GREEN': 'Verde',
+    'LIGHT GREEN': 'Verde Claro',
+    'DARK GREEN': 'Verde Oscuro',
+    'GREY': 'Gris',
+    'GRAY': 'Gris',
+    'LIGHT GREY': 'Gris Claro',
+    'LIGHT GRAY': 'Gris Claro',
+    'DARK GREY': 'Gris Oscuro',
+    'DARK GRAY': 'Gris Oscuro',
+    'BROWN': 'Marrón',
+    'PINK': 'Rosa',
+    'LIGHT PINK': 'Rosa Claro',
+    'HOT PINK': 'Rosa Fuerte',
+    'PURPLE': 'Morado',
+    'YELLOW': 'Amarillo',
+    'ORANGE': 'Naranja',
+    'CREAM': 'Crema',
+    'BEIGE': 'Beige',
+    'TAN': 'Bronceado',
+    'BURGUNDY': 'Burdeos',
+    'MAROON': 'Granate'
+}
+
+def get_spanish_color(english_color):
+    """Get Spanish translation of color name"""
+    color_upper = english_color.upper().strip()
+    return COLOR_TRANSLATIONS.get(color_upper, english_color)
+
 def parse_towel_orders(pdf_file):
     """Parse Amazon towel order PDFs"""
     orders = []
@@ -264,35 +305,43 @@ def generate_manufacturing_label(c, data, is_first=True):
     # Product Type (label + value with spacing)
     c.setFont("Helvetica", 8)
     c.drawCentredString(col_center, col_y, "PRODUCT TYPE:")
-    col_y -= 0.2 * inch  # Increased spacing
-    c.setFont("Helvetica-Bold", 11)  # Made BOLD
+    col_y -= 0.24 * inch  # Increased spacing (was 0.2)
+    c.setFont("Helvetica-Bold", 13)  # Enlarged by 2pts (was 11pt)
     c.drawCentredString(col_center, col_y, data['product_type'].upper())
-    col_y -= 0.3 * inch  # More space before divider
+    col_y -= 0.32 * inch  # More space before divider (was 0.3)
     
     # Divider
     c.setLineWidth(0.5)
     c.line(left + 0.05 * inch, col_y, left_col_right - 0.05 * inch, col_y)
-    col_y -= 0.22 * inch  # More space after divider
+    col_y -= 0.24 * inch  # More space after divider (was 0.22, moved down)
     
-    # Color (ALL CAPS, centered, BOLD)
+    # Color (ALL CAPS, centered, BOLD) - moved down
     c.setFont("Helvetica", 8)
     c.drawCentredString(col_center, col_y, "COLOR:")
-    col_y -= 0.2 * inch  # Increased spacing
+    col_y -= 0.22 * inch  # Increased spacing (was 0.2)
     c.setFont("Helvetica-Bold", 16)  # Made BOLD
     c.drawCentredString(col_center, col_y, data['towel_color'].upper())
-    col_y -= 0.32 * inch  # More space before divider
+    col_y -= 0.34 * inch  # More space before divider (was 0.32)
     
     # Divider
     c.setLineWidth(0.5)
     c.line(left + 0.05 * inch, col_y, left_col_right - 0.05 * inch, col_y)
-    col_y -= 0.22 * inch  # More space after divider
+    col_y -= 0.24 * inch  # More space after divider (was 0.22, moved down)
     
-    # Thread Color (centered, BOLD)
+    # Thread Color (centered, BOLD) - moved down, enlarged, with Spanish
     c.setFont("Helvetica", 8)
     c.drawCentredString(col_center, col_y, "THREAD COLOR:")
-    col_y -= 0.18 * inch  # Increased spacing
-    c.setFont("Helvetica-Bold", 13)  # Made BOLD
+    col_y -= 0.2 * inch  # Increased spacing (was 0.18)
+    
+    # English thread color - enlarged by 2pts (was 13pt)
+    c.setFont("Helvetica-Bold", 15)
     c.drawCentredString(col_center, col_y, data['thread_color'].upper())
+    col_y -= 0.14 * inch  # Small space before Spanish translation
+    
+    # Spanish thread color translation
+    spanish_color = get_spanish_color(data['thread_color'])
+    c.setFont("Helvetica", 10)  # Smaller for Spanish translation
+    c.drawCentredString(col_center, col_y, spanish_color)
     
     # ========== RIGHT COLUMN: PERSONALIZATION ==========
     col_y = content_top - 0.12 * inch

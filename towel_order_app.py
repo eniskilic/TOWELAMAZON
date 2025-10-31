@@ -112,6 +112,8 @@ def parse_towel_orders(pdf_file):
                             continue
                         
                         sku = sku_match.group(1).strip()
+                        # Clean up SKU - remove any trailing price/tax info that got captured
+                        sku = re.split(r'\s+(?:Item|Tax|total|\$|Promotion)', sku)[0].strip()
                         
                         # Find quantity
                         qty_match = re.search(r'Quantity[^\d]*(\d+)', text[:text.find(sku_line)])
@@ -125,9 +127,17 @@ def parse_towel_orders(pdf_file):
                         font_color = color_match.group(1).strip() if color_match else ''
                         
                         # Parse SKU for product type and color
-                        towel_color = sku.split('-')[-1].strip()
-                        # Clean up color - remove any tax/price text that got captured
-                        towel_color = re.split(r'\s+(?:Tax|Item|total|\$)', towel_color)[0].strip()
+                        # SKU format: Set-3Pcs-White or HT-2PCS-Yellow
+                        sku_parts = sku.split('-')
+                        if len(sku_parts) >= 2:
+                            towel_color = sku_parts[-1].strip()
+                        else:
+                            towel_color = 'Unknown'
+                        
+                        # Additional cleanup - remove any remaining unwanted text
+                        towel_color = re.split(r'\s+(?:Tax|Item|total|Promotion|\$)', towel_color)[0].strip()
+                        # Remove any parentheses or brackets that might have been captured
+                        towel_color = re.sub(r'[\(\)\[\]]', '', towel_color).strip()
                         
                         customizations = []
                         product_type = ''
@@ -294,9 +304,9 @@ def generate_manufacturing_label(c, data, is_first=True):
     c.drawCentredString(col_center, col_y, "PRODUCT:")
     col_y -= 0.22 * inch
     
-    # Product type (mixed case, bold)
+    # Product type (ALL CAPS, bold)
     c.setFont("Helvetica-Bold", 13)
-    c.drawCentredString(col_center, col_y, data['product_type'])
+    c.drawCentredString(col_center, col_y, data['product_type'].upper())
     col_y -= 0.26 * inch  # Increased spacing from 0.20 to 0.26
     
     # Towel color (ALL CAPS, bold, larger)

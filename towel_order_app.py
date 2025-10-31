@@ -229,31 +229,12 @@ def generate_manufacturing_label(c, data, is_first=True):
     c.setFont("Helvetica-Bold", 13)
     c.drawString(left, y, data['buyer'])
     
-    # QTY and Item Counter Badge
-    qty_value = int(data['quantity'])
-    
-    # Show item counter badge only if order has multiple items
+    # Item Counter Badge (only show if order has multiple items)
     if data['item_count'] > 1:
-        # QTY label
-        if qty_value > 2:
-            c.setFont("Helvetica-BoldOblique", 15)
-        else:
-            c.setFont("Helvetica-Bold", 15)
-        qty_text = f"QTY: {data['quantity']}"
-        qty_width = c.stringWidth(qty_text, c._fontname, c._fontsize)
-        c.drawRightString(right - 0.85 * inch, y, qty_text)
-        
         # Item counter badge with warning triangle [2 of 3]
         c.setFont("Helvetica-Bold", 11)
         badge_text = f"▲ [{data['item_number']} of {data['item_count']}]"
         c.drawRightString(right, y, badge_text)
-    else:
-        # Single item - just show QTY
-        if qty_value > 2:
-            c.setFont("Helvetica-BoldOblique", 15)
-        else:
-            c.setFont("Helvetica-Bold", 15)
-        c.drawRightString(right, y, f"QTY: {data['quantity']}")
     
     y -= 0.16 * inch
     
@@ -321,6 +302,15 @@ def generate_manufacturing_label(c, data, is_first=True):
     # Towel color (ALL CAPS, bold, larger)
     c.setFont("Helvetica-Bold", 16)
     c.drawCentredString(col_center, col_y, data['towel_color'].upper())
+    col_y -= 0.24 * inch
+    
+    # Quantity (under color)
+    qty_value = int(data['quantity'])
+    if qty_value > 2:
+        c.setFont("Helvetica-BoldOblique", 18)  # Bold italic for high quantities
+    else:
+        c.setFont("Helvetica-Bold", 18)
+    c.drawCentredString(col_center, col_y, f"QTY: {data['quantity']}")
     col_y -= 0.36 * inch
     
     # Divider

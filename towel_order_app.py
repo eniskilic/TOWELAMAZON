@@ -140,7 +140,7 @@ def parse_towel_orders(pdf_file):
                                 ('Hand Towel 1', r'First Hand Towel:\s*(.+?)(?:\n|Second Hand)'),
                                 ('Hand Towel 2', r'Second Hand Towel:\s*(.+?)(?:\n|First Bath)'),
                                 ('Bath Towel 1', r'First Bath Towel:\s*(.+?)(?:\n|Second Bath)'),
-                                ('Bath Towel 2', r'Second Bath Towel:\s*(.+?)(?:\n|Item|Grand|$)')
+                                ('Bath Towel 2', r'Second Bath Towel:\s*(.+?)(?:\n|Item|Grand|Gift|Add|Choose|$)')
                             ]
                         elif 'Set-3Pcs' in sku:
                             product_type = '3-pc Set'
@@ -214,7 +214,7 @@ def parse_towel_orders(pdf_file):
     return orders
 
 def generate_manufacturing_label(c, data, is_first=True):
-    """Generate two-column manufacturing label"""
+    """Generate two-column manufacturing label with dynamic sizing for 6-pc sets"""
     W, H = landscape((4 * inch, 6 * inch))
     left = 0.25 * inch
     right = W - 0.25 * inch
@@ -285,7 +285,13 @@ def generate_manufacturing_label(c, data, is_first=True):
     left_col_right = left + left_col_width
     right_col_left = left_col_right + 0.1 * inch
     
-    content_height = 2.4 * inch
+    # DYNAMIC HEIGHT: Increase for 6-pc sets
+    num_customizations = len(data['customizations'])
+    if num_customizations >= 6:
+        content_height = 2.8 * inch  # Increased from 2.4 for 6-pc sets
+    else:
+        content_height = 2.4 * inch
+    
     content_top = y
     content_bottom = y - content_height
     
@@ -305,42 +311,42 @@ def generate_manufacturing_label(c, data, is_first=True):
     # Product Type (label + value with spacing)
     c.setFont("Helvetica", 8)
     c.drawCentredString(col_center, col_y, "PRODUCT TYPE:")
-    col_y -= 0.24 * inch  # Increased spacing (was 0.2)
-    c.setFont("Helvetica-Bold", 13)  # Enlarged by 2pts (was 11pt)
+    col_y -= 0.24 * inch
+    c.setFont("Helvetica-Bold", 13)
     c.drawCentredString(col_center, col_y, data['product_type'].upper())
-    col_y -= 0.32 * inch  # More space before divider (was 0.3)
+    col_y -= 0.32 * inch
     
     # Divider
     c.setLineWidth(0.5)
     c.line(left + 0.05 * inch, col_y, left_col_right - 0.05 * inch, col_y)
-    col_y -= 0.24 * inch  # More space after divider (was 0.22, moved down)
+    col_y -= 0.24 * inch
     
-    # Color (ALL CAPS, centered, BOLD) - moved down
+    # Color (ALL CAPS, centered, BOLD)
     c.setFont("Helvetica", 8)
     c.drawCentredString(col_center, col_y, "COLOR:")
-    col_y -= 0.22 * inch  # Increased spacing (was 0.2)
-    c.setFont("Helvetica-Bold", 16)  # Made BOLD
+    col_y -= 0.22 * inch
+    c.setFont("Helvetica-Bold", 16)
     c.drawCentredString(col_center, col_y, data['towel_color'].upper())
-    col_y -= 0.34 * inch  # More space before divider (was 0.32)
+    col_y -= 0.34 * inch
     
     # Divider
     c.setLineWidth(0.5)
     c.line(left + 0.05 * inch, col_y, left_col_right - 0.05 * inch, col_y)
-    col_y -= 0.24 * inch  # More space after divider (was 0.22, moved down)
+    col_y -= 0.24 * inch
     
-    # Thread Color (centered, BOLD) - moved down, enlarged, with Spanish
+    # Thread Color (centered, BOLD) with Spanish
     c.setFont("Helvetica", 8)
     c.drawCentredString(col_center, col_y, "THREAD COLOR:")
-    col_y -= 0.2 * inch  # Increased spacing (was 0.18)
+    col_y -= 0.2 * inch
     
-    # English thread color - enlarged by 2pts (was 13pt)
+    # English thread color
     c.setFont("Helvetica-Bold", 15)
     c.drawCentredString(col_center, col_y, data['thread_color'].upper())
-    col_y -= 0.14 * inch  # Small space before Spanish translation
+    col_y -= 0.14 * inch
     
     # Spanish thread color translation
     spanish_color = get_spanish_color(data['thread_color'])
-    c.setFont("Helvetica", 10)  # Smaller for Spanish translation
+    c.setFont("Helvetica", 10)
     c.drawCentredString(col_center, col_y, spanish_color)
     
     # ========== RIGHT COLUMN: PERSONALIZATION ==========
@@ -348,19 +354,39 @@ def generate_manufacturing_label(c, data, is_first=True):
     
     c.setFont("Helvetica-Bold", 9)
     c.drawString(right_col_left + 0.05 * inch, col_y, "PERSONALIZATION:")
-    col_y -= 0.24 * inch  # More space after header
+    col_y -= 0.24 * inch
+    
+    # ADJUSTED SPACING FOR 6-PC SETS
+    if num_customizations >= 6:
+        label_spacing = 0.16 * inch  # Reduced from 0.18
+        text_spacing = 0.20 * inch   # Reduced from 0.24
+        label_font_size = 10         # Reduced from 11
+        text_font_size = 13          # Reduced from 15
+    else:
+        label_spacing = 0.18 * inch
+        text_spacing = 0.24 * inch
+        label_font_size = 11
+        text_font_size = 15
     
     for i, (label, text) in enumerate(data['customizations']):
-        if col_y > content_bottom + 0.2 * inch:
-            # Label (11pt, regular font)
-            c.setFont("Helvetica", 11)
+        # Check if we have space (with smaller buffer for 6-pc)
+        min_space_needed = 0.15 * inch if num_customizations >= 6 else 0.2 * inch
+        
+        if col_y > content_bottom + min_space_needed:
+            # Label
+            c.setFont("Helvetica", label_font_size)
             c.drawString(right_col_left + 0.08 * inch, col_y, f"{label}:")
-            col_y -= 0.18 * inch  # More space between label and text
+            col_y -= label_spacing
             
-            # Personalization text (15pt, bold italic)
-            c.setFont("Helvetica-BoldOblique", 15)
+            # Personalization text
+            c.setFont("Helvetica-BoldOblique", text_font_size)
             c.drawString(right_col_left + 0.08 * inch, col_y, text)
-            col_y -= 0.24 * inch  # More space between items
+            col_y -= text_spacing
+        else:
+            # If we're running out of space, indicate there are more items
+            c.setFont("Helvetica-Oblique", 8)
+            c.drawString(right_col_left + 0.08 * inch, col_y, f"[{num_customizations - i} more items...]")
+            break
     
     # ============ BOTTOM: GIFT MESSAGE BOX ============
     y_bottom = content_bottom - 0.15 * inch

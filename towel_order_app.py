@@ -316,7 +316,7 @@ def generate_manufacturing_label(c, data, is_first=True):
     # Product type (mixed case, bold)
     c.setFont("Helvetica-Bold", 13)
     c.drawCentredString(col_center, col_y, data['product_type'])
-    col_y -= 0.20 * inch
+    col_y -= 0.26 * inch  # Increased spacing from 0.20 to 0.26
     
     # Towel color (ALL CAPS, bold, larger)
     c.setFont("Helvetica-Bold", 16)

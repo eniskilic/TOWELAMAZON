@@ -308,26 +308,20 @@ def generate_manufacturing_label(c, data, is_first=True):
     col_y = content_top - 0.12 * inch
     col_center = left + (left_col_width / 2)
     
-    # Product Type (label + value with spacing)
+    # Product label
     c.setFont("Helvetica", 8)
-    c.drawCentredString(col_center, col_y, "PRODUCT TYPE:")
-    col_y -= 0.24 * inch
-    c.setFont("Helvetica-Bold", 13)
-    c.drawCentredString(col_center, col_y, data['product_type'].upper())
-    col_y -= 0.32 * inch
-    
-    # Divider
-    c.setLineWidth(0.5)
-    c.line(left + 0.05 * inch, col_y, left_col_right - 0.05 * inch, col_y)
-    col_y -= 0.24 * inch
-    
-    # Color (ALL CAPS, centered, BOLD)
-    c.setFont("Helvetica", 8)
-    c.drawCentredString(col_center, col_y, "COLOR:")
+    c.drawCentredString(col_center, col_y, "PRODUCT:")
     col_y -= 0.22 * inch
+    
+    # Product type (mixed case, bold)
+    c.setFont("Helvetica-Bold", 13)
+    c.drawCentredString(col_center, col_y, data['product_type'])
+    col_y -= 0.20 * inch
+    
+    # Towel color (ALL CAPS, bold, larger)
     c.setFont("Helvetica-Bold", 16)
     c.drawCentredString(col_center, col_y, data['towel_color'].upper())
-    col_y -= 0.34 * inch
+    col_y -= 0.36 * inch
     
     # Divider
     c.setLineWidth(0.5)

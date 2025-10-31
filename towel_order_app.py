@@ -239,6 +239,13 @@ def generate_manufacturing_label(c, data, is_first=True):
     c.setFont("Helvetica-Bold", 13)
     c.drawString(left, y, data['buyer'])
     
+    # GIFT indicator (if has gift note)
+    if data['has_gift_note']:
+        c.setFont("Helvetica-Bold", 11)
+        c.setFillColor(colors.HexColor('#D32F2F'))  # Red color
+        c.drawString(left + c.stringWidth(data['buyer'], "Helvetica-Bold", 13) + 0.2 * inch, y, "GIFT")
+        c.setFillColor(colors.black)  # Reset to black
+    
     # Item Counter Badge (only show if order has multiple items)
     if data['item_count'] > 1:
         # Item counter badge with warning triangle [2 of 3]
@@ -279,7 +286,7 @@ def generate_manufacturing_label(c, data, is_first=True):
     # DYNAMIC HEIGHT: Increase for 6-pc sets
     num_customizations = len(data['customizations'])
     if num_customizations >= 6:
-        content_height = 2.9 * inch  # Set to 2.9 as requested
+        content_height = 3.2 * inch  # Increased to 3.2 for guaranteed fit
     else:
         content_height = 2.4 * inch
     
@@ -352,8 +359,8 @@ def generate_manufacturing_label(c, data, is_first=True):
     
     # ADJUSTED SPACING FOR 6-PC SETS
     if num_customizations >= 6:
-        label_spacing = 0.12 * inch  # Set to 0.12 as requested
-        text_spacing = 0.14 * inch   # Set to 0.14 as requested
+        label_spacing = 0.11 * inch  # Reduced from 0.12
+        text_spacing = 0.13 * inch   # Reduced from 0.14
         label_font_size = 10
         text_font_size = 13
     else:
@@ -364,7 +371,7 @@ def generate_manufacturing_label(c, data, is_first=True):
     
     for i, (label, text) in enumerate(data['customizations']):
         # Check if we have space (with smaller buffer for 6-pc)
-        min_space_needed = 0.07 * inch if num_customizations >= 6 else 0.2 * inch  # Set to 0.07 as requested
+        min_space_needed = 0.05 * inch if num_customizations >= 6 else 0.2 * inch  # Reduced to 0.05
         
         if col_y > content_bottom + min_space_needed:
             # Label

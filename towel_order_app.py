@@ -286,7 +286,7 @@ def generate_manufacturing_label(c, data, is_first=True):
     # DYNAMIC HEIGHT: Increase for 6-pc sets
     num_customizations = len(data['customizations'])
     if num_customizations >= 6:
-        content_height = 3.2 * inch  # Increased to 3.2 for guaranteed fit
+        content_height = 2.8 * inch  # Set to 2.8 to keep borders on page
     else:
         content_height = 2.4 * inch
     
@@ -359,8 +359,8 @@ def generate_manufacturing_label(c, data, is_first=True):
     
     # ADJUSTED SPACING FOR 6-PC SETS
     if num_customizations >= 6:
-        label_spacing = 0.11 * inch  # Reduced from 0.12
-        text_spacing = 0.13 * inch   # Reduced from 0.14
+        label_spacing = 0.15 * inch  # Good readability
+        text_spacing = 0.26 * inch   # Adjusted to fit in 2.8" box
         label_font_size = 10
         text_font_size = 13
     else:
@@ -371,7 +371,7 @@ def generate_manufacturing_label(c, data, is_first=True):
     
     for i, (label, text) in enumerate(data['customizations']):
         # Check if we have space (with smaller buffer for 6-pc)
-        min_space_needed = 0.05 * inch if num_customizations >= 6 else 0.2 * inch  # Reduced to 0.05
+        min_space_needed = 0.08 * inch if num_customizations >= 6 else 0.2 * inch
         
         if col_y > content_bottom + min_space_needed:
             # Label

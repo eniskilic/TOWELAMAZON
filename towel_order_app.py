@@ -33,7 +33,7 @@ COLOR_TRANSLATIONS = {
 def get_spanish_color(c): return COLOR_TRANSLATIONS.get((c or "").upper().strip(), c or "")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PDF parser (unchanged logic)
+# PDF parser
 # ─────────────────────────────────────────────────────────────────────────────
 def parse_towel_orders(pdf_file):
     orders = []
@@ -154,7 +154,6 @@ def fit_fonts(items, width_pts, height_pts, start_label, start_text, min_fs=8):
         need, label_lead, text_lead = wrapped_height(items, label_fs, text_fs, width_pts)
         if need <= height_pts:  # fits
             return label_fs, text_fs, label_lead, text_lead
-        # scale down; keep text a bit larger
         scale = max(0.82, height_pts / max(need, 1))
         label_fs = max(min_fs, label_fs * scale)
         text_fs  = max(min_fs,  text_fs  * scale)
@@ -163,7 +162,39 @@ def fit_fonts(items, width_pts, height_pts, start_label, start_text, min_fs=8):
     return label_fs, text_fs, label_lead, text_lead
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Label renderer (CONTENT HEIGHT HARD-CAPPED)
+# Gift note label (unchanged design)
+# ─────────────────────────────────────────────────────────────────────────────
+def generate_gift_note(c, order_id, buyer_name, gift_message):
+    W, H = landscape((4 * inch, 6 * inch))
+    margin = 0.4 * inch
+    c.setStrokeColor(colors.HexColor('#8B4513')); c.setLineWidth(3)
+    c.rect(margin, margin, W - 2*margin, H - 2*margin, stroke=1, fill=0)
+    c.setLineWidth(1)
+    c.rect(margin + 0.1*inch, margin + 0.1*inch,
+           W - 2*margin - 0.2*inch, H - 2*margin - 0.2*inch, stroke=1, fill=0)
+    corners = [
+        (margin + 0.15*inch, H - margin - 0.15*inch),
+        (W - margin - 0.15*inch, H - margin - 0.15*inch),
+        (margin + 0.15*inch, margin + 0.15*inch),
+        (W - margin - 0.15*inch, margin + 0.15*inch)
+    ]
+    c.setFont("Helvetica", 16); c.setFillColor(colors.HexColor('#D4A574'))
+    for x, y in corners: c.drawCentredString(x, y - 0.05*inch, "❀")
+    c.setFont("Helvetica", 20); c.setFillColor(colors.HexColor('#C64A7B'))
+    c.drawCentredString(W / 2, H - margin - 0.5*inch, "♥")
+    y = H / 2 + 0.3 * inch
+    c.setFont("Helvetica-Oblique", 14); c.setFillColor(colors.HexColor('#4A4A4A'))
+    max_w = W - 2*margin - 0.8*inch
+    lines = simpleSplit(gift_message, "Helvetica-Oblique", 14, max_w)
+    for line in lines:
+        c.drawCentredString(W / 2, y, line); y -= 0.22 * inch
+    c.setFont("Helvetica-Bold", 12); c.setFillColor(colors.HexColor('#8B4513'))
+    c.drawCentredString(W / 2, margin + 0.6*inch, f"To: {buyer_name}")
+    c.setFont("Helvetica", 7); c.setFillColor(colors.grey)
+    c.drawRightString(W - margin - 0.15*inch, margin + 0.2*inch, f"Order: {order_id}")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Label renderer  (CONTENT HEIGHT HARD-CAPPED; 6-pc = 2.95")
 # ─────────────────────────────────────────────────────────────────────────────
 def generate_manufacturing_label(c, data):
     W, H = landscape((4 * inch, 6 * inch))
@@ -196,24 +227,22 @@ def generate_manufacturing_label(c, data):
     left_right = left + left_w
     right_left = left_right + 0.08*inch
 
-    # ── HARD CAP on content height ────────────────────────────────────────────
-    # Fixed box sizes (inches). These caps keep the bottom margin healthy.
-    MAX_CONTENT_H_IN   = 3.05  # never exceed ~3.05"
-    SIX_PC_CONTENT_IN  = 3.05  # 6-pc uses the cap
-    THREE_PC_CONTENT_IN= 2.55  # 3-pc tidy height
-    FEW_CONTENT_IN     = 2.35  # 1–2 items
+    # ── HARD CAP on content height
+    MAX_CONTENT_H_IN   = 3.05   # overall safety cap
+    SIX_PC_CONTENT_IN  = 2.95   # ← per your request
+    THREE_PC_CONTENT_IN= 2.55
+    FEW_CONTENT_IN     = 2.35
 
     n = len(data['customizations'])
     if n >= 6: content_h = SIX_PC_CONTENT_IN * inch
     elif n >= 3: content_h = THREE_PC_CONTENT_IN * inch
     else: content_h = FEW_CONTENT_IN * inch
-    # extra safety: never over the cap
     content_h = min(content_h, MAX_CONTENT_H_IN * inch)
 
     content_top = y
     content_bottom = y - content_h
 
-    # Outer box + divider
+    # Box + divider
     c.setLineWidth(2);   c.rect(left, content_bottom, right-left, content_h, stroke=1, fill=0)
     c.setLineWidth(1.5); c.line(left_right + 0.04*inch, content_top, left_right + 0.04*inch, content_bottom)
 
@@ -243,7 +272,7 @@ def generate_manufacturing_label(c, data):
     usable_width  = (right - pad_r) - (right_left + pad_l)  # points
 
     items = data['customizations']
-    # starting sizes: smaller for many lines
+    # Starting sizes: smaller for many lines
     start_label = 12 if len(items) <= 3 else 11
     start_text  = 16 if len(items) <= 3 else 15
     if len(items) >= 6: start_label, start_text = 10, 14
@@ -272,7 +301,7 @@ def generate_manufacturing_label(c, data):
         c.setFont("Helvetica-Oblique", 8)
         c.drawString(x, usable_bottom, f"[+{remaining} more…]")
 
-    # Gift strip (stays below the fixed box; always fits)
+    # Gift strip
     y_after_box = content_bottom - 0.15*inch
     if data['has_gift_note']:
         h = 0.25*inch
@@ -352,6 +381,58 @@ if uploaded_files:
                                            "all_manufacturing_labels.pdf","application/pdf",
                                            use_container_width=True, key="dl_all")
 
+        with tab2:
+            st.subheader("📋 Manufacturing Plan - Production Summary")
+            st.markdown("*6-pc sets count as 2 production units (2× 3-pc sets)*")
+            df_mfg = df.copy()
+            def units(r):
+                q = int(r['Quantity'])
+                return q*2 if '6-pc' in r['Product Type'].lower() else q
+            df_mfg['Mfg_Units'] = df_mfg.apply(units, axis=1)
+
+            c1, c2, c3, c4 = st.columns(4)
+            with c1: st.metric("Total Orders", len(df['Order ID'].unique()))
+            with c2: st.metric("Total Line Items", len(df))
+            with c3: st.metric("Production Units", int(df_mfg['Mfg_Units'].sum()))
+            with c4: st.metric("Gift Notes", int((df['Gift Message']=='YES').sum()))
+
+            st.markdown("---")
+            st.markdown("### 🧵 Thread Color Breakdown")
+            th = df_mfg.groupby('Thread Color').agg({'Mfg_Units':'sum','Order ID':'count'}) \
+                       .rename(columns={'Mfg_Units':'Sets to Embroider','Order ID':'Line Items'}) \
+                       .sort_values('Sets to Embroider', ascending=False)
+            th['Sets to Embroider'] = th['Sets to Embroider'].astype(int)
+            cols = st.columns(min(len(th),4) or 1)
+            for i,(t,rw) in enumerate(th.iterrows()):
+                with cols[i % len(cols)]:
+                    st.metric(f"🧵 {t}", f"{rw['Sets to Embroider']} sets", f"{rw['Line Items']} items")
+
+            st.markdown("---")
+            st.markdown("### 🎨 Towel Color Breakdown")
+            col = df_mfg.groupby('Color').agg({'Mfg_Units':'sum','Order ID':'count'}) \
+                        .rename(columns={'Mfg_Units':'Sets Needed','Order ID':'Line Items'}) \
+                        .sort_values('Sets Needed', ascending=False)
+            col['Sets Needed'] = col['Sets Needed'].astype(int)
+            cols2 = st.columns(min(len(col),4) or 1)
+            for i,(t,rw) in enumerate(col.iterrows()):
+                with cols2[i % len(cols2)]:
+                    st.metric(f"🎨 {t}", f"{rw['Sets Needed']} sets", f"{rw['Line Items']} items")
+
+            st.markdown("---")
+            st.markdown("### 📦 Product Type Breakdown")
+            prod = df_mfg.groupby('Product Type').agg({'Quantity':'sum','Mfg_Units':'sum','Order ID':'count'}) \
+                        .rename(columns={'Quantity':'Ordered Qty','Mfg_Units':'Production Units','Order ID':'Line Items'}) \
+                        .sort_values('Production Units', ascending=False)
+            prod['Ordered Qty'] = prod['Ordered Qty'].astype(int)
+            prod['Production Units'] = prod['Production Units'].astype(int)
+            st.dataframe(prod, use_container_width=True)
+
+            st.markdown("---")
+            st.markdown("### 🎯 Color × Thread Matrix")
+            matrix = df_mfg.groupby(['Color','Thread Color'])['Mfg_Units'].sum().unstack(fill_value=0).astype(int)
+            matrix['TOTAL'] = matrix.sum(axis=1); matrix.loc['TOTAL'] = matrix.sum()
+            st.dataframe(matrix, use_container_width=True)
+
         with tab3:
             st.subheader("Manufacturing Labels")
             selected = []
@@ -405,12 +486,10 @@ if uploaded_files:
                         out = BytesIO(); c = canvas.Canvas(out, pagesize=landscape((4*inch,6*inch)))
                         for idx in chosen:
                             r = gifts.loc[idx]; o, it = r['_order_obj'], r['_item_obj']
-                            # (Re-use your existing generate_gift_note if you kept it; omitted here for brevity)
-                            # For now keep labels focused on manufacturing space fix.
-                            # You can insert your previous generate_gift_note function above if needed.
-                            c.setFont("Helvetica-Bold", 16); c.drawCentredString(3*inch, 2*inch, it['gift_message'][:60])
+                            generate_gift_note(c, o['order_id'], o['buyer_name'], it['gift_message'])
                             c.showPage()
                         c.save(); out.seek(0)
+                        st.session_state['gift_notes_pdf'] = out.getvalue()
                         st.download_button("📥 Download Gift Notes PDF", out.getvalue(),
                                            "gift_notes.pdf","application/pdf")
 else:

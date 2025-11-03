@@ -475,7 +475,7 @@ if uploaded_files:
             prod = df_mfg.groupby('Product Type').agg({'Quantity':'sum','Mfg_Units':'sum','Order ID':'count'}) \
                         .rename(columns={'Quantity':'Ordered Qty','Mfg_Units':'Production Units','Order ID':'Line Items'}) \
                         .sort_values('Production Units', ascending=False)
-            prod['Ordered Qty'] = prod['Ordered Qty'].astype(int)
+            prod['Ordered Qty'] = pd.to_numeric(prod['Ordered Qty'], errors='coerce').fillna(0).astype('int64')
             prod['Production Units'] = prod['Production Units'].astype(int)
             st.dataframe(prod, use_container_width=True)
 

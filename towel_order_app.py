@@ -328,28 +328,46 @@ def index_mfg_pdf_by_order(pdf_bytes):
 def extract_shipping_key_from_page(page):
     """
     Try to find Order ID on a shipping label page; if not present,
-    extract a best-guess recipient name (first non-empty line).
+    extract recipient name after 'SHIP TO:' marker.
     """
     txt = page.extract_text() or ""
+    
     # 1) Prefer explicit Order ID if present
     m = ORDER_ID_RE.search(txt)
     if m:
         return ("order_id", m.group(0))
 
-    # 2) Fallback to recipient name heuristic:
-    # grab the first two non-empty lines, join, and title-case normalize.
-    lines = [l.strip() for l in txt.splitlines() if l.strip()]
-    if lines:
-        candidate = lines[0]
-        # Some labels put name on line 1, sometimes line 2; look for alphabetic-heavy line
-        for l in lines[:3]:
-            if re.search(r"[A-Za-z]", l) and len(l) <= 48:
-                candidate = l
-                break
-        return ("buyer_name", candidate.strip())
+    # 2) Fallback to recipient name - look for text after "SHIP TO:"
+    lines = txt.splitlines()
+    
+    # Find the "SHIP TO:" line
+    ship_to_index = -1
+    for i, line in enumerate(lines):
+        if "SHIP TO" in line.upper():
+            ship_to_index = i
+            break
+    
+    # If found, get the next non-empty line as the name
+    if ship_to_index >= 0:
+        for i in range(ship_to_index + 1, min(ship_to_index + 4, len(lines))):
+            candidate = lines[i].strip()
+            # Look for a line with mostly letters and spaces (likely a name)
+            if candidate and len(candidate) > 3 and re.search(r'[A-Za-z]{3,}', candidate):
+                # Skip lines that are clearly addresses (have numbers/street indicators)
+                if not re.search(r'^\d+\s|ST\s|AVE\s|DR\s|BLVD\s|ROAD\s|LN\s|APT\s|UNIT\s', candidate, re.IGNORECASE):
+                    return ("buyer_name", candidate.strip())
+    
+    # 3) Last resort: try first alphabetic-heavy line
+    for line in lines[:10]:
+        line = line.strip()
+        if line and len(line) > 3 and re.search(r'[A-Za-z]{3,}', line):
+            if not re.search(r'^\d+\s|FAIRFIELD|GLORIA|JERSEY|SHIP|TRACKING|BILLING|UPS|USPS', line, re.IGNORECASE):
+                return ("buyer_name", line.strip())
+    
     return ("unknown", "")
 
 def normalize_name(s):
+    """Normalize name for fuzzy matching - lowercase, single spaces"""
     return re.sub(r"\s+", " ", (s or "").strip()).lower()
 
 # ─────────────────────────────────────────────────────────────────────────────

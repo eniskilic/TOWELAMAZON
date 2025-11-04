@@ -30,8 +30,7 @@ COLOR_TRANSLATIONS = {
     'HOT PINK': 'Rosa Fuerte','PURPLE': 'Morado','YELLOW': 'Amarillo','ORANGE': 'Naranja',
     'CREAM': 'Crema','BEIGE': 'Beige','TAN': 'Bronceado','BURGUNDY': 'Burdeos','MAROON': 'Granate'
 }
-def get_spanish_color(c): 
-    return COLOR_TRANSLATIONS.get((c or "").upper().strip(), c or "")
+def get_spanish_color(c): return COLOR_TRANSLATIONS.get((c or "").upper().strip(), c or "")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PDF parser (UPDATED to detect gift card lines)
@@ -44,8 +43,7 @@ def parse_towel_orders(pdf_file):
             text = page.extract_text() or ""
 
             if 'Order ID:' in text:
-                if current and current['items']: 
-                    orders.append(current)
+                if current and current['items']: orders.append(current)
                 m = re.search(r'Order ID:\s*([\d-]+)', text)
                 current = {
                     'order_id': m.group(1).strip() if m else '',
@@ -61,9 +59,7 @@ def parse_towel_orders(pdf_file):
                 m = re.search(r'Ship To:\s*\n\s*(.+?)(?:\n)', text)
                 if m: current['buyer_name'] = m.group(1).strip()
 
-            if not current: 
-                continue
-
+            if not current: continue
             blocks = re.split(r'(SKU:\s*[^\n]+)', text)
             for i in range(1, len(blocks), 2):
                 if i+1 >= len(blocks): break
@@ -160,8 +156,7 @@ def parse_towel_orders(pdf_file):
                     'has_gift_card': has_gift_card
                 })
 
-        if current and current['items']: 
-            orders.append(current)
+        if current and current['items']: orders.append(current)
     return orders
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -222,7 +217,7 @@ def generate_gift_note(c, order_id, buyer_name, gift_message):
     c.drawRightString(W - margin - 0.15*inch, margin + 0.2*inch, f"Order: {order_id}")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Manufacturing label renderer (with gift banner)
+# Manufacturing label renderer (UPDATED with prominent GIFT NOTE at top)
 # ─────────────────────────────────────────────────────────────────────────────
 def generate_manufacturing_label(c, data):
     W, H = landscape((4 * inch, 6 * inch))
@@ -235,11 +230,13 @@ def generate_manufacturing_label(c, data):
         banner_y = y
         y -= banner_height  # Move everything else down
         
+        # Draw banner box
         c.setFillColor(colors.HexColor('#D32F2F'))
         c.setStrokeColor(colors.HexColor('#B71C1C'))
         c.setLineWidth(3)
         c.rect(left, banner_y - banner_height, right - left, banner_height, stroke=1, fill=1)
         
+        # Draw "GIFT NOTE" text
         c.setFillColor(colors.white)
         c.setFont("Helvetica-Bold", 20)
         text_y = banner_y - banner_height/2 - 0.07*inch
@@ -268,7 +265,7 @@ def generate_manufacturing_label(c, data):
     left_right = left + left_w
     right_left = left_right + 0.08*inch
 
-    # Content box heights
+    # Content box heights (adjust if gift note present)
     MAX_CONTENT_H_IN   = 3.05 if not data['has_gift_note'] else 2.70
     SIX_PC_CONTENT_IN  = 2.95 if not data['has_gift_note'] else 2.60
     THREE_PC_CONTENT_IN= 2.55 if not data['has_gift_note'] else 2.20
@@ -348,37 +345,49 @@ def merge_shipping_and_manufacturing_labels_simple(shipping_pdf_bytes, manufactu
     Maps each shipping label to its corresponding manufacturing labels.
     """
     try:
+        # Read PDFs
         shipping_pdf = PdfReader(shipping_pdf_bytes)
         manufacturing_pdf = PdfReader(manufacturing_pdf_bytes)
         
+        # Extract order sequence from dataframe (preserves original order)
         seen_orders = []
         order_item_counts = []
         
         for order_id in order_dataframe['Order ID']:
             if order_id not in seen_orders:
                 seen_orders.append(order_id)
+                # Count how many items this order has
                 item_count = len(order_dataframe[order_dataframe['Order ID'] == order_id])
                 order_item_counts.append(item_count)
         
+        # Build positional mapping: shipping label index → manufacturing label indices
         shipping_to_mfg = {}
         mfg_index = 0
         
         for shipping_index, item_count in enumerate(order_item_counts):
+            # This shipping label gets the next 'item_count' manufacturing labels
             shipping_to_mfg[shipping_index] = list(range(mfg_index, mfg_index + item_count))
             mfg_index += item_count
         
+        # Create merged PDF
         output_pdf = PdfWriter()
         total_shipping_labels = len(seen_orders)
         
         for ship_idx in range(total_shipping_labels):
+            # Check if shipping label exists
             if ship_idx >= len(shipping_pdf.pages):
                 break
+            
+            # Add shipping label
             output_pdf.add_page(shipping_pdf.pages[ship_idx])
+            
+            # Add all manufacturing labels for this order
             if ship_idx in shipping_to_mfg:
                 for mfg_idx in shipping_to_mfg[ship_idx]:
                     if mfg_idx < len(manufacturing_pdf.pages):
                         output_pdf.add_page(manufacturing_pdf.pages[mfg_idx])
         
+        # Write to buffer
         output_buffer = BytesIO()
         output_pdf.write(output_buffer)
         output_buffer.seek(0)
@@ -390,26 +399,18 @@ def merge_shipping_and_manufacturing_labels_simple(shipping_pdf_bytes, manufactu
         return None, 0, 0
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Streamlit UI — Concept 1: Clean Minimal Layout
+# Streamlit UI
 # ─────────────────────────────────────────────────────────────────────────────
 st.title("🧺 Towel Order Parser & Label Generator")
-st.caption("Upload packing slip PDFs → review orders → generate manufacturing & gift labels → (optionally) merge with shipping labels.")
+st.markdown("**Upload Amazon packing slip PDFs to generate manufacturing labels**")
 
-# ── Upload strip (one clean row)
-u_left, u_right = st.columns([0.8, 0.2])
-with u_left:
-    uploaded_files = st.file_uploader("Upload PDF files", type=['pdf'], accept_multiple_files=True)
-with u_right:
-    st.info("💡 Tip: Keep shipping labels in the same sequence as the packing slips for a perfect merge.", icon="💡")
+uploaded_files = st.file_uploader("Upload PDF files", type=['pdf'], accept_multiple_files=True)
 
-# Reset outputs on new upload batch
 if uploaded_files:
     st.session_state['mfg_labels_pdf'] = None
     st.session_state['gift_notes_pdf'] = None
     st.session_state['merged_pdf'] = None
 
-# ── Parse & build dataframe (unchanged logic)
-if uploaded_files:
     all_orders = []
     with st.spinner("Parsing PDFs..."):
         for f in uploaded_files:
@@ -419,7 +420,6 @@ if uploaded_files:
                 st.error(f"Error parsing {f.name}: {e}")
 
     if all_orders:
-        # Build df (same as original)
         rows = []
         for o in all_orders:
             for it in o['items']:
@@ -436,35 +436,20 @@ if uploaded_files:
         df['item_count'] = df.groupby('Order ID')['Order ID'].transform('count')
         df['item_number'] = df.groupby('Order ID').cumcount() + 1
 
-        # Metrics row
-        df_mfg = df.copy()
-        def units(r): 
-            return (int(r['Quantity']) * 2) if '6-pc' in r['Product Type'].lower() else int(r['Quantity'])
-        df_mfg['Mfg_Units'] = df_mfg.apply(units, axis=1)
-
-        m1, m2, m3, m4 = st.columns(4)
-        with m1: st.metric("Total Orders", len(df['Order ID'].drop_duplicates()))
-        with m2: st.metric("Total Line Items", len(df))
-        with m3: st.metric("Production Units", int(df_mfg['Mfg_Units'].sum()))
-        with m4: st.metric("Gift Notes", int((df['Gift Message']=='YES').sum()))
-
         st.success(f"✅ Parsed {len(all_orders)} orders with {len(df)} items")
 
-        # ── Three clean tabs
-        tab_table, tab_summary, tab_labels_merge = st.tabs([
-            "📊 Table",
-            "📋 Production Summary",
-            "🏷️ Labels & Merge"
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            "📊 Table View","📋 Manufacturing Plan","🏷️ Manufacturing Labels",
+            "🎁 Gift Notes","🔗 Merge Ship + MFG"
         ])
 
-        # =========================
-        # TAB 1: TABLE
-        # =========================
-        with tab_table:
+        # ─────────────────────────────────────────────────────────────────────
+        # TAB 1: Table + Generate ALL
+        # ─────────────────────────────────────────────────────────────────────
+        with tab1:
             display_df = df.drop(columns=['_order_obj','_item_obj'])
             st.dataframe(display_df, use_container_width=True, height=420)
-
-            c1, c2 = st.columns([0.5, 0.5])
+            c1, c2 = st.columns(2)
             with c1:
                 gen_all = st.button("🏷️ Generate ALL Manufacturing Labels", type="primary", use_container_width=True)
             with c2:
@@ -472,8 +457,7 @@ if uploaded_files:
 
             if gen_all:
                 with st.spinner("Generating all manufacturing labels..."):
-                    out = BytesIO()
-                    c = canvas.Canvas(out, pagesize=landscape((4*inch,6*inch)))
+                    out = BytesIO(); c = canvas.Canvas(out, pagesize=landscape((4*inch,6*inch)))
                     for _, r in df.iterrows():
                         o, it = r['_order_obj'], r['_item_obj']
                         data = {
@@ -494,20 +478,23 @@ if uploaded_files:
                                            "all_manufacturing_labels.pdf","application/pdf",
                                            use_container_width=True, key="dl_all")
 
-        # =========================
-        # TAB 2: PRODUCTION SUMMARY
-        # =========================
-        with tab_summary:
-            st.subheader("📋 Manufacturing Plan — Production Summary")
-            st.caption("6-pc sets count as 2 production units (two 3-pc sets).")
+        # ─────────────────────────────────────────────────────────────────────
+        # TAB 2: Manufacturing Plan
+        # ─────────────────────────────────────────────────────────────────────
+        with tab2:
+            st.subheader("📋 Manufacturing Plan - Production Summary")
+            st.markdown("*6-pc sets count as 2 production units (2× 3-pc sets)*")
+            df_mfg = df.copy()
+            def units(r): return (int(r['Quantity']) * 2) if '6-pc' in r['Product Type'].lower() else int(r['Quantity'])
+            df_mfg['Mfg_Units'] = df_mfg.apply(units, axis=1)
 
-            k1, k2, k3, k4 = st.columns(4)
-            with k1: st.metric("Total Orders", len(df['Order ID'].unique()))
-            with k2: st.metric("Total Line Items", len(df))
-            with k3: st.metric("Production Units", int(df_mfg['Mfg_Units'].sum()))
-            with k4: st.metric("Gift Notes", int((df['Gift Message']=='YES').sum()))
+            c1, c2, c3, c4 = st.columns(4)
+            with c1: st.metric("Total Orders", len(df['Order ID'].unique()))
+            with c2: st.metric("Total Line Items", len(df))
+            with c3: st.metric("Production Units", int(df_mfg['Mfg_Units'].sum()))
+            with c4: st.metric("Gift Notes", int((df['Gift Message']=='YES').sum()))
 
-            st.divider()
+            st.markdown("---")
             st.markdown("### 🧵 Thread Color Breakdown")
             th = df_mfg.groupby('Thread Color').agg({'Mfg_Units':'sum','Order ID':'count'}) \
                        .rename(columns={'Mfg_Units':'Sets to Embroider','Order ID':'Line Items'}) \
@@ -518,7 +505,7 @@ if uploaded_files:
                 with cols[i % len(cols)]:
                     st.metric(f"🧵 {t}", f"{rw['Sets to Embroider']} sets", f"{rw['Line Items']} items")
 
-            st.divider()
+            st.markdown("---")
             st.markdown("### 🎨 Towel Color Breakdown")
             col = df_mfg.groupby('Color').agg({'Mfg_Units':'sum','Order ID':'count'}) \
                         .rename(columns={'Mfg_Units':'Sets Needed','Order ID':'Line Items'}) \
@@ -529,7 +516,7 @@ if uploaded_files:
                 with cols2[i % len(cols2)]:
                     st.metric(f"🎨 {t}", f"{rw['Sets Needed']} sets", f"{rw['Line Items']} items")
 
-            st.divider()
+            st.markdown("---")
             st.markdown("### 📦 Product Type Breakdown")
             prod = df_mfg.groupby('Product Type').agg({'Quantity':'sum','Mfg_Units':'sum','Order ID':'count'}) \
                         .rename(columns={'Quantity':'Ordered Qty','Mfg_Units':'Production Units','Order ID':'Line Items'}) \
@@ -538,18 +525,17 @@ if uploaded_files:
             prod['Production Units'] = prod['Production Units'].astype(int)
             st.dataframe(prod, use_container_width=True)
 
-            st.divider()
+            st.markdown("---")
             st.markdown("### 🎯 Color × Thread Matrix")
             matrix = df_mfg.groupby(['Color','Thread Color'])['Mfg_Units'].sum().unstack(fill_value=0).astype(int)
             matrix['TOTAL'] = matrix.sum(axis=1); matrix.loc['TOTAL'] = matrix.sum()
             st.dataframe(matrix, use_container_width=True)
 
-        # =========================
-        # TAB 3: LABELS & MERGE (stacked sections)
-        # =========================
-        with tab_labels_merge:
-            # --------- Manufacturing ----------
-            st.subheader("🏷️ Manufacturing Labels")
+        # ─────────────────────────────────────────────────────────────────────
+        # TAB 3: Generate selected labels
+        # ─────────────────────────────────────────────────────────────────────
+        with tab3:
+            st.subheader("Manufacturing Labels")
             selected = []
             for idx, row in df.iterrows():
                 a,b = st.columns([0.1,0.9])
@@ -559,7 +545,6 @@ if uploaded_files:
                 with b:
                     gift_indicator = " 🎁" if row['Gift Message'] == 'YES' else ""
                     st.write(f"**{row['Order ID']}** — {row['Product Type']} — {row['Color']} — Qty: {row['Quantity']}{gift_indicator}")
-
             if selected:
                 if st.button("🖨️ Generate Selected Labels", type="primary"):
                     with st.spinner("Generating labels..."):
@@ -583,10 +568,11 @@ if uploaded_files:
             else:
                 st.info("Select items above to generate labels")
 
-            st.divider()
-
-            # --------- Gift Notes ----------
-            st.subheader("🎁 Gift Note Labels")
+        # ─────────────────────────────────────────────────────────────────────
+        # TAB 4: Gift notes
+        # ─────────────────────────────────────────────────────────────────────
+        with tab4:
+            st.subheader("Gift Note Labels")
             gifts = df[df['Gift Message']=='YES']
             if gifts.empty:
                 st.info("No orders with gift messages found")
@@ -612,22 +598,28 @@ if uploaded_files:
                         st.download_button("📥 Download Gift Notes PDF", out.getvalue(),
                                            "gift_notes.pdf","application/pdf")
 
-            st.divider()
-
-            # --------- Merge ----------
+        # ─────────────────────────────────────────────────────────────────────
+        # TAB 5: SIMPLE MERGE (adapted from blanket orders)
+        # ─────────────────────────────────────────────────────────────────────
+        with tab5:
             st.subheader("🔗 Merge Shipping Labels with Manufacturing Labels")
             st.markdown(
                 """
-                **✨ Simple Merge Mode**
-
+                **✨ Simple Merge Mode** (adapted from blanket orders)
+                
                 **How it works:**
                 - Assumes shipping labels are in the **same order** as your packing slip PDF
-                - One shipping label per order; manufacturing labels follow that shipping label
-
+                - One shipping label per order, even if the order has multiple items
+                - Manufacturing labels are added after each shipping label
+                
+                **Requirements:**
+                - Your shipping labels PDF must have labels in the same sequence as they appear in your packing slip
+                - This is usually the case when you download/print shipping labels in order from Amazon
+                
                 **Steps:**
-                1) Ensure manufacturing labels are generated (or auto-build below)  
-                2) Upload your shipping labels PDF  
-                3) Click **Merge Now**
+                1. Generate manufacturing labels in Tab 1 (or they'll be auto-generated)
+                2. Upload your shipping labels PDF below
+                3. Click "Merge Now"
                 """
             )
 
@@ -661,30 +653,35 @@ if uploaded_files:
                             st.session_state['mfg_labels_pdf'] = out.getvalue()
 
                     if not st.session_state['mfg_labels_pdf']:
-                        st.error("Manufacturing labels PDF is missing. Generate them first in Table tab.")
+                        st.error("Manufacturing labels PDF is missing. Generate them first in Table View.")
                     else:
                         with st.spinner("Merging PDFs using simple positional matching..."):
+                            # Reset file pointer
                             ship_pdf.seek(0)
+                            
+                            # Use simple positional merge (same as blanket orders)
                             merged_buffer, num_shipping, num_mfg = merge_shipping_and_manufacturing_labels_simple(
                                 ship_pdf,
                                 BytesIO(st.session_state['mfg_labels_pdf']),
                                 df
                             )
+                            
                             if merged_buffer:
                                 st.session_state['merged_pdf'] = merged_buffer.getvalue()
-                                st.success(f"✅ Merged {num_shipping} shipping labels with {num_mfg} manufacturing labels.")
-
-                                # Multi-item orders
+                                st.success(f"✅ Successfully merged {num_shipping} shipping labels with {num_mfg} manufacturing labels!")
+                                
+                                # Show multi-item orders
                                 multi_item = df.groupby('Order ID').size()
                                 multi_item = multi_item[multi_item > 1]
+                                
                                 if len(multi_item) > 0:
                                     with st.expander(f"ℹ️ Orders with multiple items ({len(multi_item)})"):
                                         for order_id, count in multi_item.items():
                                             buyer = df[df['Order ID'] == order_id]['Buyer'].iloc[0]
                                             st.write(f"• **{buyer}** ({order_id}): {count} items")
                                         st.info("📦 Each of these orders has ONE shipping label followed by MULTIPLE manufacturing labels")
-
-                                # Gift orders
+                                
+                                # Show orders with gift notes
                                 gift_orders = df[df['Gift Message'] == 'YES']['Order ID'].unique()
                                 if len(gift_orders) > 0:
                                     with st.expander(f"🎁 Orders with gift notes ({len(gift_orders)})"):
@@ -692,8 +689,8 @@ if uploaded_files:
                                             buyer = df[df['Order ID'] == order_id]['Buyer'].iloc[0]
                                             st.write(f"• **{buyer}** ({order_id})")
                                         st.success("These labels have a prominent RED BANNER at the top")
-
-                                # Merge structure preview
+                                
+                                # Show merge structure
                                 with st.expander("📋 Merge Structure Preview"):
                                     st.markdown("**How labels are arranged:**")
                                     page_num = 1
@@ -702,13 +699,14 @@ if uploaded_files:
                                         item_count = len(df[df['Order ID'] == order_id])
                                         has_gift = df[df['Order ID'] == order_id]['Gift Message'].iloc[0] == 'YES'
                                         gift_icon = " 🎁" if has_gift else ""
-                                        st.markdown(f"**Page {page_num}:** Shipping label — {buyer}{gift_icon}")
+                                        
+                                        st.markdown(f"**Page {page_num}:** Shipping label - {buyer}{gift_icon}")
                                         page_num += 1
                                         for i in range(item_count):
-                                            st.markdown(f"**Page {page_num}:** Manufacturing label {i+1} — {buyer}{gift_icon}")
+                                            st.markdown(f"**Page {page_num}:** Manufacturing label {i+1} - {buyer}{gift_icon}")
                                             page_num += 1
                                         st.markdown("---")
-
+                                
                                 st.download_button(
                                     "📥 Download Merged PDF",
                                     st.session_state['merged_pdf'],
@@ -716,5 +714,6 @@ if uploaded_files:
                                     "application/pdf",
                                     use_container_width=True
                                 )
+
 else:
-    st.info("👆 Upload PDF files (packing slips) to get started", icon="📤")
+    st.info("👆 Upload PDF files (packing slips) to get started")

@@ -162,7 +162,7 @@ def fit_fonts(items, width_pts, height_pts, start_label, start_text, min_fs=8):
     return label_fs, text_fs, label_lead, text_lead
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Gift note label (kept for completeness)
+# Gift note label
 # ─────────────────────────────────────────────────────────────────────────────
 def generate_gift_note(c, order_id, buyer_name, gift_message):
     W, H = landscape((4 * inch, 6 * inch))
@@ -229,7 +229,7 @@ def generate_manufacturing_label(c, data):
 
     # Content box heights
     MAX_CONTENT_H_IN   = 3.05
-    SIX_PC_CONTENT_IN  = 2.95   # ← per your request
+    SIX_PC_CONTENT_IN  = 2.95
     THREE_PC_CONTENT_IN= 2.55
     FEW_CONTENT_IN     = 2.35
 
@@ -306,69 +306,66 @@ def generate_manufacturing_label(c, data):
         c.setFont("Helvetica-Bold", 10); c.drawString(left + 0.1*inch, y_after_box - 0.16*inch, "🎁 GIFT NOTE: YES")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Helpers for MERGE
+# SIMPLE MERGE FUNCTION (adapted from blanket orders)
 # ─────────────────────────────────────────────────────────────────────────────
-ORDER_ID_RE = re.compile(r"\b\d{3}-\d{7}-\d{7}\b")
-
-def index_mfg_pdf_by_order(pdf_bytes):
+def merge_shipping_and_manufacturing_labels_simple(shipping_pdf_bytes, manufacturing_pdf_bytes, order_dataframe):
     """
-    Returns dict[order_id] -> list(page_index) by OCRing text from the
-    manufacturing labels PDF (each page contains 'Order: <id>').
+    Simple positional merge: assumes shipping labels are in the same order as parsed data.
+    Maps each shipping label to its corresponding manufacturing labels.
     """
-    mapping = {}
-    with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
-        for i, page in enumerate(pdf.pages):
-            txt = page.extract_text() or ""
-            m = re.search(r"Order:\s*(\d{3}-\d{7}-\d{7})", txt)
-            if m:
-                oid = m.group(1).strip()
-                mapping.setdefault(oid, []).append(i)
-    return mapping
-
-def extract_shipping_key_from_page(page):
-    """
-    Try to find Order ID on a shipping label page; if not present,
-    extract recipient name after 'SHIP TO:' marker.
-    """
-    txt = page.extract_text() or ""
-    
-    # 1) Prefer explicit Order ID if present
-    m = ORDER_ID_RE.search(txt)
-    if m:
-        return ("order_id", m.group(0))
-
-    # 2) Fallback to recipient name - look for text after "SHIP TO:"
-    lines = txt.splitlines()
-    
-    # Find the "SHIP TO:" line
-    ship_to_index = -1
-    for i, line in enumerate(lines):
-        if "SHIP TO" in line.upper():
-            ship_to_index = i
-            break
-    
-    # If found, get the next non-empty line as the name
-    if ship_to_index >= 0:
-        for i in range(ship_to_index + 1, min(ship_to_index + 4, len(lines))):
-            candidate = lines[i].strip()
-            # Look for a line with mostly letters and spaces (likely a name)
-            if candidate and len(candidate) > 3 and re.search(r'[A-Za-z]{3,}', candidate):
-                # Skip lines that are clearly addresses (have numbers/street indicators)
-                if not re.search(r'^\d+\s|ST\s|AVE\s|DR\s|BLVD\s|ROAD\s|LN\s|APT\s|UNIT\s', candidate, re.IGNORECASE):
-                    return ("buyer_name", candidate.strip())
-    
-    # 3) Last resort: try first alphabetic-heavy line
-    for line in lines[:10]:
-        line = line.strip()
-        if line and len(line) > 3 and re.search(r'[A-Za-z]{3,}', line):
-            if not re.search(r'^\d+\s|FAIRFIELD|GLORIA|JERSEY|SHIP|TRACKING|BILLING|UPS|USPS', line, re.IGNORECASE):
-                return ("buyer_name", line.strip())
-    
-    return ("unknown", "")
-
-def normalize_name(s):
-    """Normalize name for fuzzy matching - lowercase, single spaces"""
-    return re.sub(r"\s+", " ", (s or "").strip()).lower()
+    try:
+        # Read PDFs
+        shipping_pdf = PdfReader(shipping_pdf_bytes)
+        manufacturing_pdf = PdfReader(manufacturing_pdf_bytes)
+        
+        # Extract order sequence from dataframe (preserves original order)
+        seen_orders = []
+        order_item_counts = []
+        
+        for order_id in order_dataframe['Order ID']:
+            if order_id not in seen_orders:
+                seen_orders.append(order_id)
+                # Count how many items this order has
+                item_count = len(order_dataframe[order_dataframe['Order ID'] == order_id])
+                order_item_counts.append(item_count)
+        
+        # Build positional mapping: shipping label index → manufacturing label indices
+        shipping_to_mfg = {}
+        mfg_index = 0
+        
+        for shipping_index, item_count in enumerate(order_item_counts):
+            # This shipping label gets the next 'item_count' manufacturing labels
+            shipping_to_mfg[shipping_index] = list(range(mfg_index, mfg_index + item_count))
+            mfg_index += item_count
+        
+        # Create merged PDF
+        output_pdf = PdfWriter()
+        total_shipping_labels = len(seen_orders)
+        
+        for ship_idx in range(total_shipping_labels):
+            # Check if shipping label exists
+            if ship_idx >= len(shipping_pdf.pages):
+                break
+            
+            # Add shipping label
+            output_pdf.add_page(shipping_pdf.pages[ship_idx])
+            
+            # Add all manufacturing labels for this order
+            if ship_idx in shipping_to_mfg:
+                for mfg_idx in shipping_to_mfg[ship_idx]:
+                    if mfg_idx < len(manufacturing_pdf.pages):
+                        output_pdf.add_page(manufacturing_pdf.pages[mfg_idx])
+        
+        # Write to buffer
+        output_buffer = BytesIO()
+        output_pdf.write(output_buffer)
+        output_buffer.seek(0)
+        
+        return output_buffer, len(seen_orders), sum(len(v) for v in shipping_to_mfg.values())
+        
+    except Exception as e:
+        st.error(f"Error merging labels: {str(e)}")
+        return None, 0, 0
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Streamlit UI
@@ -570,19 +567,31 @@ if uploaded_files:
                                            "gift_notes.pdf","application/pdf")
 
         # ─────────────────────────────────────────────────────────────────────
-        # TAB 5: MERGE Shipping Labels + Manufacturing Labels (FIXED)
+        # TAB 5: SIMPLE MERGE (adapted from blanket orders)
         # ─────────────────────────────────────────────────────────────────────
         with tab5:
             st.subheader("🔗 Merge Shipping Labels with Manufacturing Labels")
             st.markdown(
-                "- Upload your **Shipping Labels PDF** (one label per page).\n"
-                "- Click **Merge**. The app pairs each shipping page with the matching **Order ID**; "
-                "if no Order ID is visible on the label page, it falls back to the **recipient name**."
+                """
+                **✨ Simple Merge Mode** (adapted from blanket orders)
+                
+                **How it works:**
+                - Assumes shipping labels are in the **same order** as your packing slip PDF
+                - One shipping label per order, even if the order has multiple items
+                - Manufacturing labels are added after each shipping label
+                
+                **Requirements:**
+                - Your shipping labels PDF must have labels in the same sequence as they appear in your packing slip
+                - This is usually the case when you download/print shipping labels in order from Amazon
+                
+                **Steps:**
+                1. Generate manufacturing labels in Tab 1 (or they'll be auto-generated)
+                2. Upload your shipping labels PDF below
+                3. Click "Merge Now"
+                """
             )
 
-            ship_pdf = st.file_uploader("Upload Shipping Labels PDF", type=["pdf"], key="ship_pdf")
-
-            # If the user hasn't generated manufacturing labels yet, we can build them on-demand
+            ship_pdf = st.file_uploader("📤 Upload Shipping Labels PDF", type=["pdf"], key="ship_pdf")
             auto_build = st.checkbox("Automatically generate manufacturing labels if missing", value=True)
 
             if st.button("🔗 Merge Now", type="primary"):
@@ -592,7 +601,8 @@ if uploaded_files:
                     # Ensure we have manufacturing labels PDF bytes
                     if not st.session_state['mfg_labels_pdf'] and auto_build:
                         with st.spinner("Generating manufacturing labels..."):
-                            out = BytesIO(); c = canvas.Canvas(out, pagesize=landscape((4*inch,6*inch)))
+                            out = BytesIO()
+                            c = canvas.Canvas(out, pagesize=landscape((4*inch,6*inch)))
                             for _, r in df.iterrows():
                                 o, it = r['_order_obj'], r['_item_obj']
                                 data = {
@@ -604,82 +614,62 @@ if uploaded_files:
                                     'has_gift_note': bool(it['gift_message']),
                                     'item_number': r['item_number'], 'item_count': r['item_count']
                                 }
-                                generate_manufacturing_label(c, data); c.showPage()
-                            c.save(); out.seek(0)
+                                generate_manufacturing_label(c, data)
+                                c.showPage()
+                            c.save()
+                            out.seek(0)
                             st.session_state['mfg_labels_pdf'] = out.getvalue()
 
                     if not st.session_state['mfg_labels_pdf']:
                         st.error("Manufacturing labels PDF is missing. Generate them first in Table View.")
                     else:
-                        with st.spinner("Merging PDFs by order..."):
-                            # Index manufacturing pages by Order ID
-                            mfg_index = index_mfg_pdf_by_order(st.session_state['mfg_labels_pdf'])
-                            
-                            # Prepare Buyer → Order IDs mapping from df
-                            buyer_to_oids = (
-                                df.groupby('Buyer')['Order ID']
-                                  .apply(list)
-                                  .to_dict()
-                            )
-                            # Normalize buyer keys for fuzzy match
-                            buyer_to_oids_norm = {normalize_name(k): v for k, v in buyer_to_oids.items()}
-
-                            # Read shipping labels with PyPDF2
-                            ship_reader = PdfReader(ship_pdf)
-                            mfg_reader = PdfReader(BytesIO(st.session_state['mfg_labels_pdf']))
-                            writer = PdfWriter()
-
-                            # IMPORTANT: Reset file pointer before using pdfplumber
+                        with st.spinner("Merging PDFs using simple positional matching..."):
+                            # Reset file pointer
                             ship_pdf.seek(0)
                             
-                            # Open with pdfplumber ONCE, outside the loop
-                            with pdfplumber.open(ship_pdf) as pdf_ship:
-                                unmatched_pages = 0
+                            # Use simple positional merge (same as blanket orders)
+                            merged_buffer, num_shipping, num_mfg = merge_shipping_and_manufacturing_labels_simple(
+                                ship_pdf,
+                                BytesIO(st.session_state['mfg_labels_pdf']),
+                                df
+                            )
+                            
+                            if merged_buffer:
+                                st.session_state['merged_pdf'] = merged_buffer.getvalue()
+                                st.success(f"✅ Successfully merged {num_shipping} shipping labels with {num_mfg} manufacturing labels!")
                                 
-                                for i, page in enumerate(ship_reader.pages):
-                                    # Always add the shipping label page first
-                                    writer.add_page(page)
-
-                                    # Extract text from the corresponding pdfplumber page
-                                    page_txt = pdf_ship.pages[i].extract_text() or ""
-                                    
-                                    # Try order ID first
-                                    m = ORDER_ID_RE.search(page_txt)
-                                    added = False
-                                    
-                                    if m:
-                                        oid = m.group(0)
-                                        for pidx in mfg_index.get(oid, []):
-                                            writer.add_page(mfg_reader.pages[pidx])
-                                            added = True
-                                    else:
-                                        # Fallback to buyer name
-                                        key_type, buyer_guess = extract_shipping_key_from_page(pdf_ship.pages[i])
-                                        if key_type == "buyer_name":
-                                            oids = buyer_to_oids_norm.get(normalize_name(buyer_guess), [])
-                                            for oid in oids:
-                                                for pidx in mfg_index.get(oid, []):
-                                                    writer.add_page(mfg_reader.pages[pidx])
-                                                    added = True
-
-                                    if not added:
-                                        unmatched_pages += 1
-
-                            merged_out = BytesIO()
-                            writer.write(merged_out)
-                            merged_out.seek(0)
-                            st.session_state['merged_pdf'] = merged_out.getvalue()
-
-                        st.success("✅ Merged shipping labels with manufacturing labels")
-                        if unmatched_pages:
-                            st.info(f"ℹ️ {unmatched_pages} shipping page(s) had no match (no Order ID on label and buyer name didn't match).")
-                        st.download_button(
-                            "📥 Download Merged PDF",
-                            st.session_state['merged_pdf'],
-                            "merged_shipping_plus_manufacturing.pdf",
-                            "application/pdf",
-                            use_container_width=True
-                        )
+                                # Show multi-item orders
+                                multi_item = df.groupby('Order ID').size()
+                                multi_item = multi_item[multi_item > 1]
+                                
+                                if len(multi_item) > 0:
+                                    with st.expander(f"ℹ️ Orders with multiple items ({len(multi_item)})"):
+                                        for order_id, count in multi_item.items():
+                                            buyer = df[df['Order ID'] == order_id]['Buyer'].iloc[0]
+                                            st.write(f"• **{buyer}** ({order_id}): {count} items")
+                                        st.info("📦 Each of these orders has ONE shipping label followed by MULTIPLE manufacturing labels")
+                                
+                                # Show merge structure
+                                with st.expander("📋 Merge Structure Preview"):
+                                    st.markdown("**How labels are arranged:**")
+                                    page_num = 1
+                                    for idx, order_id in enumerate(df['Order ID'].drop_duplicates()):
+                                        buyer = df[df['Order ID'] == order_id]['Buyer'].iloc[0]
+                                        item_count = len(df[df['Order ID'] == order_id])
+                                        st.markdown(f"**Page {page_num}:** Shipping label - {buyer}")
+                                        page_num += 1
+                                        for i in range(item_count):
+                                            st.markdown(f"**Page {page_num}:** Manufacturing label {i+1} - {buyer}")
+                                            page_num += 1
+                                        st.markdown("---")
+                                
+                                st.download_button(
+                                    "📥 Download Merged PDF",
+                                    st.session_state['merged_pdf'],
+                                    "merged_shipping_plus_manufacturing.pdf",
+                                    "application/pdf",
+                                    use_container_width=True
+                                )
 
 else:
     st.info("👆 Upload PDF files (packing slips) to get started")

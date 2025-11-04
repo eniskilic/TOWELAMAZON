@@ -33,7 +33,7 @@ COLOR_TRANSLATIONS = {
 def get_spanish_color(c): return COLOR_TRANSLATIONS.get((c or "").upper().strip(), c or "")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PDF parser
+# PDF parser (UPDATED to detect gift card lines)
 # ─────────────────────────────────────────────────────────────────────────────
 def parse_towel_orders(pdf_file):
     orders = []
@@ -120,17 +120,40 @@ def parse_towel_orders(pdf_file):
                         m = re.search(pat, content)
                         if m: custom.append((lbl, m.group(1).strip()))
 
+                # UPDATED: Better gift message detection
                 gift = ''
+                has_gift_card = False
+                
+                # Check for "Gift Message:" pattern
                 m = re.search(r'Gift Message:\s*(.+?)(?:\n|Item|Grand|$)', content)
-                if m: gift = m.group(1).strip()
-                else:
+                if m: 
+                    gift = m.group(1).strip()
+                    has_gift_card = True
+                
+                # Check for "Add Gift Card - Line 1/2/3:" patterns
+                if re.search(r'Add Gift Card - Line [123]:', content, re.IGNORECASE):
+                    has_gift_card = True
+                    # Try to extract the gift card text
+                    gift_lines = []
+                    for line_num in [1, 2, 3]:
+                        m = re.search(rf'Add Gift Card - Line {line_num}:\s*(.+?)(?:\n|$)', content, re.IGNORECASE)
+                        if m and m.group(1).strip():
+                            gift_lines.append(m.group(1).strip())
+                    if gift_lines:
+                        gift = ' '.join(gift_lines)
+                
+                # Fallback check
+                if not has_gift_card:
                     m = re.search(r'Add Gift Card:\s*(.+?)(?:\n|Item|Grand|$)', content)
-                    if m: gift = m.group(1).strip()
+                    if m and m.group(1).strip():
+                        gift = m.group(1).strip()
+                        has_gift_card = True
 
                 current['items'].append({
                     'sku': sku, 'product_type': product_type, 'towel_color': towel_color,
                     'quantity': quantity, 'font': font, 'font_color': font_color,
-                    'customizations': custom, 'gift_message': gift
+                    'customizations': custom, 'gift_message': gift,
+                    'has_gift_card': has_gift_card
                 })
 
         if current and current['items']: orders.append(current)
@@ -194,20 +217,35 @@ def generate_gift_note(c, order_id, buyer_name, gift_message):
     c.drawRightString(W - margin - 0.15*inch, margin + 0.2*inch, f"Order: {order_id}")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Manufacturing label renderer (6-pc box height = 2.95")
+# Manufacturing label renderer (UPDATED with prominent GIFT NOTE at top)
 # ─────────────────────────────────────────────────────────────────────────────
 def generate_manufacturing_label(c, data):
     W, H = landscape((4 * inch, 6 * inch))
     left, right = 0.25 * inch, (6 * inch) - 0.25 * inch
     y = (4 * inch) - 0.25 * inch
 
-    # Header
+    # PROMINENT GIFT NOTE BANNER AT TOP (if has gift note)
+    if data['has_gift_note']:
+        banner_height = 0.35 * inch
+        banner_y = y
+        y -= banner_height  # Move everything else down
+        
+        # Draw banner box
+        c.setFillColor(colors.HexColor('#D32F2F'))
+        c.setStrokeColor(colors.HexColor('#B71C1C'))
+        c.setLineWidth(3)
+        c.rect(left, banner_y - banner_height, right - left, banner_height, stroke=1, fill=1)
+        
+        # Draw "GIFT NOTE" text
+        c.setFillColor(colors.white)
+        c.setFont("Helvetica-Bold", 20)
+        text_y = banner_y - banner_height/2 - 0.07*inch
+        c.drawCentredString((left + right) / 2, text_y, "🎁 GIFT NOTE 🎁")
+
+    # Header (moved down if gift note present)
     c.setFont("Helvetica-Bold", 13); c.setFillColor(colors.black)
     c.drawString(left, y, data['buyer'])
-    if data['has_gift_note']:
-        c.setFont("Helvetica-Bold", 11); c.setFillColor(colors.HexColor('#D32F2F'))
-        c.drawString(left + c.stringWidth(data['buyer'], "Helvetica-Bold", 13) + 0.2*inch, y, "GIFT")
-        c.setFillColor(colors.black)
+    
     if data['item_count'] > 1:
         c.setFont("Helvetica-Bold", 11)
         c.drawRightString(right, y, f"▲ [{data['item_number']} of {data['item_count']}]")
@@ -227,11 +265,11 @@ def generate_manufacturing_label(c, data):
     left_right = left + left_w
     right_left = left_right + 0.08*inch
 
-    # Content box heights
-    MAX_CONTENT_H_IN   = 3.05
-    SIX_PC_CONTENT_IN  = 2.95
-    THREE_PC_CONTENT_IN= 2.55
-    FEW_CONTENT_IN     = 2.35
+    # Content box heights (adjust if gift note present)
+    MAX_CONTENT_H_IN   = 3.05 if not data['has_gift_note'] else 2.70
+    SIX_PC_CONTENT_IN  = 2.95 if not data['has_gift_note'] else 2.60
+    THREE_PC_CONTENT_IN= 2.55 if not data['has_gift_note'] else 2.20
+    FEW_CONTENT_IN     = 2.35 if not data['has_gift_note'] else 2.00
 
     n = len(data['customizations'])
     if n >= 6: content_h = SIX_PC_CONTENT_IN * inch
@@ -297,13 +335,6 @@ def generate_manufacturing_label(c, data):
         remaining = len(items) - idx
         c.setFont("Helvetica-Oblique", 8)
         c.drawString(x, usable_bottom, f"[+{remaining} more…]")
-
-    # Gift strip
-    y_after_box = content_bottom - 0.15*inch
-    if data['has_gift_note']:
-        h = 0.25*inch
-        c.setLineWidth(2); c.rect(left, y_after_box - h, right-left, h, stroke=1, fill=0)
-        c.setFont("Helvetica-Bold", 10); c.drawString(left + 0.1*inch, y_after_box - 0.16*inch, "🎁 GIFT NOTE: YES")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SIMPLE MERGE FUNCTION (adapted from blanket orders)
@@ -435,7 +466,7 @@ if uploaded_files:
                             'product_type': it['product_type'], 'towel_color': it['towel_color'],
                             'thread_color': it['font_color'], 'font': it['font'],
                             'customizations': it['customizations'],
-                            'has_gift_note': bool(it['gift_message']),
+                            'has_gift_note': it.get('has_gift_card', bool(it['gift_message'])),
                             'item_number': r['item_number'], 'item_count': r['item_count']
                         }
                         generate_manufacturing_label(c, data); c.showPage()
@@ -512,7 +543,8 @@ if uploaded_files:
                     if st.checkbox("", key=f"mfg_{idx}"):
                         selected.append(idx)
                 with b:
-                    st.write(f"**{row['Order ID']}** — {row['Product Type']} — {row['Color']} — Qty: {row['Quantity']}")
+                    gift_indicator = " 🎁" if row['Gift Message'] == 'YES' else ""
+                    st.write(f"**{row['Order ID']}** — {row['Product Type']} — {row['Color']} — Qty: {row['Quantity']}{gift_indicator}")
             if selected:
                 if st.button("🖨️ Generate Selected Labels", type="primary"):
                     with st.spinner("Generating labels..."):
@@ -525,7 +557,7 @@ if uploaded_files:
                                 'product_type': it['product_type'], 'towel_color': it['towel_color'],
                                 'thread_color': it['font_color'], 'font': it['font'],
                                 'customizations': it['customizations'],
-                                'has_gift_note': bool(it['gift_message']),
+                                'has_gift_note': it.get('has_gift_card', bool(it['gift_message'])),
                                 'item_number': r['item_number'], 'item_count': r['item_count']
                             }
                             generate_manufacturing_label(c, data); c.showPage()
@@ -611,7 +643,7 @@ if uploaded_files:
                                     'product_type': it['product_type'], 'towel_color': it['towel_color'],
                                     'thread_color': it['font_color'], 'font': it['font'],
                                     'customizations': it['customizations'],
-                                    'has_gift_note': bool(it['gift_message']),
+                                    'has_gift_note': it.get('has_gift_card', bool(it['gift_message'])),
                                     'item_number': r['item_number'], 'item_count': r['item_count']
                                 }
                                 generate_manufacturing_label(c, data)
@@ -649,6 +681,15 @@ if uploaded_files:
                                             st.write(f"• **{buyer}** ({order_id}): {count} items")
                                         st.info("📦 Each of these orders has ONE shipping label followed by MULTIPLE manufacturing labels")
                                 
+                                # Show orders with gift notes
+                                gift_orders = df[df['Gift Message'] == 'YES']['Order ID'].unique()
+                                if len(gift_orders) > 0:
+                                    with st.expander(f"🎁 Orders with gift notes ({len(gift_orders)})"):
+                                        for order_id in gift_orders:
+                                            buyer = df[df['Order ID'] == order_id]['Buyer'].iloc[0]
+                                            st.write(f"• **{buyer}** ({order_id})")
+                                        st.success("These labels have a prominent RED BANNER at the top")
+                                
                                 # Show merge structure
                                 with st.expander("📋 Merge Structure Preview"):
                                     st.markdown("**How labels are arranged:**")
@@ -656,10 +697,13 @@ if uploaded_files:
                                     for idx, order_id in enumerate(df['Order ID'].drop_duplicates()):
                                         buyer = df[df['Order ID'] == order_id]['Buyer'].iloc[0]
                                         item_count = len(df[df['Order ID'] == order_id])
-                                        st.markdown(f"**Page {page_num}:** Shipping label - {buyer}")
+                                        has_gift = df[df['Order ID'] == order_id]['Gift Message'].iloc[0] == 'YES'
+                                        gift_icon = " 🎁" if has_gift else ""
+                                        
+                                        st.markdown(f"**Page {page_num}:** Shipping label - {buyer}{gift_icon}")
                                         page_num += 1
                                         for i in range(item_count):
-                                            st.markdown(f"**Page {page_num}:** Manufacturing label {i+1} - {buyer}")
+                                            st.markdown(f"**Page {page_num}:** Manufacturing label {i+1} - {buyer}{gift_icon}")
                                             page_num += 1
                                         st.markdown("---")
                                 

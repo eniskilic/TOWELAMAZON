@@ -30,8 +30,7 @@ COLOR_TRANSLATIONS = {
     'HOT PINK': 'Rosa Fuerte','PURPLE': 'Morado','YELLOW': 'Amarillo','ORANGE': 'Naranja',
     'CREAM': 'Crema','BEIGE': 'Beige','TAN': 'Bronceado','BURGUNDY': 'Burdeos','MAROON': 'Granate'
 }
-def get_spanish_color(c): 
-    return COLOR_TRANSLATIONS.get((c or "").upper().strip(), c or "")
+def get_spanish_color(c): return COLOR_TRANSLATIONS.get((c or "").upper().strip(), c or "")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PDF parser (UPDATED to detect gift card lines)
@@ -44,8 +43,7 @@ def parse_towel_orders(pdf_file):
             text = page.extract_text() or ""
 
             if 'Order ID:' in text:
-                if current and current['items']: 
-                    orders.append(current)
+                if current and current['items']: orders.append(current)
                 m = re.search(r'Order ID:\s*([\d-]+)', text)
                 current = {
                     'order_id': m.group(1).strip() if m else '',
@@ -61,17 +59,13 @@ def parse_towel_orders(pdf_file):
                 m = re.search(r'Ship To:\s*\n\s*(.+?)(?:\n)', text)
                 if m: current['buyer_name'] = m.group(1).strip()
 
-            if not current: 
-                continue
-
+            if not current: continue
             blocks = re.split(r'(SKU:\s*[^\n]+)', text)
             for i in range(1, len(blocks), 2):
-                if i + 1 >= len(blocks): 
-                    break
+                if i+1 >= len(blocks): break
                 sku_hdr, content = blocks[i], blocks[i+1]
                 m = re.search(r'SKU:\s*([^\n]+)', sku_hdr)
-                if not m: 
-                    continue
+                if not m: continue
                 sku = re.split(r'\s+(?:Item|Tax|total|\$|Promotion)', m.group(1).strip())[0]
 
                 qty_m = re.search(r'Quantity[^\d]*(\d+)', text[:text.find(sku_hdr)])
@@ -124,8 +118,7 @@ def parse_towel_orders(pdf_file):
                 if fields:
                     for lbl, pat in fields:
                         m = re.search(pat, content)
-                        if m: 
-                            custom.append((lbl, m.group(1).strip()))
+                        if m: custom.append((lbl, m.group(1).strip()))
 
                 # UPDATED: Better gift message detection
                 gift = ''
@@ -163,8 +156,7 @@ def parse_towel_orders(pdf_file):
                     'has_gift_card': has_gift_card
                 })
 
-        if current and current['items']: 
-            orders.append(current)
+        if current and current['items']: orders.append(current)
     return orders
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -225,7 +217,7 @@ def generate_gift_note(c, order_id, buyer_name, gift_message):
     c.drawRightString(W - margin - 0.15*inch, margin + 0.2*inch, f"Order: {order_id}")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Manufacturing label renderer (QTY pill divider between product & thread color)
+# Manufacturing label renderer (UPDATED with prominent GIFT NOTE at top)
 # ─────────────────────────────────────────────────────────────────────────────
 def generate_manufacturing_label(c, data):
     W, H = landscape((4 * inch, 6 * inch))
@@ -264,7 +256,7 @@ def generate_manufacturing_label(c, data):
     y -= 0.15*inch
     c.setFont("Helvetica", 9);  c.drawString(left, y, data['date'])
     y -= 0.22*inch
-    c.setLineWidth(2); c.setStrokeColor(colors.black); c.line(left, y, right, y); y -= 0.15*inch
+    c.setLineWidth(2); c.line(left, y, right, y); y -= 0.15*inch
 
     # Two columns
     total_w = right - left
@@ -292,66 +284,18 @@ def generate_manufacturing_label(c, data):
     c.setLineWidth(2);   c.rect(left, content_bottom, right-left, content_h, stroke=1, fill=0)
     c.setLineWidth(1.5); c.line(left_right + 0.04*inch, content_top, left_right + 0.04*inch, content_bottom)
 
-    # LEFT column (product specs) — with QTY pill divider
+    # LEFT column (product specs)
     col_y = content_top - 0.12*inch
     col_c = left + left_w/2
-
-    # PRODUCT header
-    c.setFont("Helvetica", 8)
-    c.drawCentredString(col_c, col_y, "PRODUCT:")
-    col_y -= 0.22*inch
-
-    # Product type
-    c.setFont("Helvetica-Bold", 13)
-    c.drawCentredString(col_c, col_y, data['product_type'].upper())
-    col_y -= 0.26*inch
-
-    # Towel color
-    c.setFont("Helvetica-Bold", 16)
-    c.drawCentredString(col_c, col_y, data['towel_color'].upper())
-    col_y -= 0.10*inch  # small spacer before divider
-
-    # ── QTY DIVIDER (centered pill on a horizontal divider) ─────────────────
-    bar_left   = left + 0.05*inch
-    bar_right  = left_right - 0.05*inch
-    pill_w     = 1.15*inch
-    pill_h     = 0.30*inch
-    divider_gap = 0.16*inch   # space between the two thin lines
-
-    # Compute vertical center of the divider area
-    div_center_y = col_y - (divider_gap/2)
-
-    # Draw two thin divider lines (above and below the pill)
-    c.setStrokeColor(colors.black)
-    c.setLineWidth(0.6)
-    # upper line
-    c.line(bar_left,  div_center_y + pill_h/2, bar_right, div_center_y + pill_h/2)
-    # lower line
-    c.line(bar_left,  div_center_y - pill_h/2, bar_right, div_center_y - pill_h/2)
-
-    # Draw the QTY pill
-    pill_x = left + (left_w - pill_w)/2
-    pill_y = div_center_y - (pill_h/2)
-    c.setFillColor(colors.HexColor('#222222'))
-    c.roundRect(pill_x, pill_y, pill_w, pill_h, 0.12*inch, stroke=0, fill=1)
-
-    # QTY text inside the pill
-    c.setFillColor(colors.white)
-    c.setFont("Helvetica-Bold", 14)
-    c.drawCentredString(pill_x + pill_w/2, div_center_y - 0.05*inch, f"QTY: {data['quantity']}")
-
-    # Advance below divider
-    col_y = div_center_y - (pill_h/2) - 0.22*inch
-
-    # THREAD COLOR section
-    c.setFont("Helvetica", 8)
-    c.drawCentredString(col_c, col_y, "THREAD COLOR:")
-    col_y -= 0.20*inch
-    c.setFont("Helvetica-Bold", 15)
-    c.drawCentredString(col_c, col_y, data['thread_color'].upper())
-    col_y -= 0.14*inch
-    c.setFont("Helvetica", 10)
-    c.drawCentredString(col_c, col_y, get_spanish_color(data['thread_color']))
+    c.setFont("Helvetica", 8); c.drawCentredString(col_c, col_y, "PRODUCT:"); col_y -= 0.22*inch
+    c.setFont("Helvetica-Bold", 13); c.drawCentredString(col_c, col_y, data['product_type'].upper()); col_y -= 0.26*inch
+    c.setFont("Helvetica-Bold", 16); c.drawCentredString(col_c, col_y, data['towel_color'].upper()); col_y -= 0.24*inch
+    c.setFont("Helvetica-BoldOblique" if int(data['quantity'])>2 else "Helvetica-Bold", 18)
+    c.drawCentredString(col_c, col_y, f"QTY: {data['quantity']}"); col_y -= 0.34*inch
+    c.setLineWidth(0.5); c.line(left + 0.05*inch, col_y, left_right - 0.05*inch, col_y); col_y -= 0.24*inch
+    c.setFont("Helvetica", 8); c.drawCentredString(col_c, col_y, "THREAD COLOR:"); col_y -= 0.2*inch
+    c.setFont("Helvetica-Bold", 15); c.drawCentredString(col_c, col_y, data['thread_color'].upper()); col_y -= 0.14*inch
+    c.setFont("Helvetica", 10); c.drawCentredString(col_c, col_y, get_spanish_color(data['thread_color']))
 
     # RIGHT column header
     right_header_y = content_top - 0.12*inch
@@ -368,8 +312,7 @@ def generate_manufacturing_label(c, data):
     items = data['customizations']
     start_label = 12 if len(items) <= 3 else 11
     start_text  = 16 if len(items) <= 3 else 15
-    if len(items) >= 6: 
-        start_label, start_text = 10, 14
+    if len(items) >= 6: start_label, start_text = 10, 14
 
     label_fs, text_fs, label_lead, text_lead = fit_fonts(
         items, usable_width, usable_height, start_label, start_text, min_fs=8
@@ -380,22 +323,13 @@ def generate_manufacturing_label(c, data):
     ytxt = usable_top
     overflow = False
     for idx, (lbl, val) in enumerate(items):
-        if ytxt - label_lead < usable_bottom: 
-            overflow = True
-            break
-        c.setFont("Helvetica", label_fs); 
-        c.drawString(x, ytxt, f"{lbl}:"); 
-        ytxt -= label_lead
+        if ytxt - label_lead < usable_bottom: overflow=True; break
+        c.setFont("Helvetica", label_fs); c.drawString(x, ytxt, f"{lbl}:"); ytxt -= label_lead
         lines = simpleSplit(val, "Helvetica-BoldOblique", text_fs, usable_width)
         for ln in lines:
-            if ytxt - text_lead < usable_bottom: 
-                overflow = True
-                break
-            c.setFont("Helvetica-BoldOblique", text_fs); 
-            c.drawString(x, ytxt, ln); 
-            ytxt -= text_lead
-        if overflow: 
-            break
+            if ytxt - text_lead < usable_bottom: overflow=True; break
+            c.setFont("Helvetica-BoldOblique", text_fs); c.drawString(x, ytxt, ln); ytxt -= text_lead
+        if overflow: break
 
     if overflow:
         remaining = len(items) - idx
@@ -551,8 +485,7 @@ if uploaded_files:
             st.subheader("📋 Manufacturing Plan - Production Summary")
             st.markdown("*6-pc sets count as 2 production units (2× 3-pc sets)*")
             df_mfg = df.copy()
-            def units(r): 
-                return (int(r['Quantity']) * 2) if '6-pc' in r['Product Type'].lower() else int(r['Quantity'])
+            def units(r): return (int(r['Quantity']) * 2) if '6-pc' in r['Product Type'].lower() else int(r['Quantity'])
             df_mfg['Mfg_Units'] = df_mfg.apply(units, axis=1)
 
             c1, c2, c3, c4 = st.columns(4)

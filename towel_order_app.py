@@ -433,7 +433,7 @@ if uploaded_files:
                                            use_container_width=True, key="dl_all")
 
         # ─────────────────────────────────────────────────────────────────────
-        # TAB 2: Manufacturing Plan (same as before, trimmed for brevity)
+        # TAB 2: Manufacturing Plan
         # ─────────────────────────────────────────────────────────────────────
         with tab2:
             st.subheader("📋 Manufacturing Plan - Production Summary")
@@ -486,7 +486,7 @@ if uploaded_files:
             st.dataframe(matrix, use_container_width=True)
 
         # ─────────────────────────────────────────────────────────────────────
-        # TAB 3: Generate selected labels (unchanged)
+        # TAB 3: Generate selected labels
         # ─────────────────────────────────────────────────────────────────────
         with tab3:
             st.subheader("Manufacturing Labels")
@@ -522,7 +522,7 @@ if uploaded_files:
                 st.info("Select items above to generate labels")
 
         # ─────────────────────────────────────────────────────────────────────
-        # TAB 4: Gift notes (unchanged)
+        # TAB 4: Gift notes
         # ─────────────────────────────────────────────────────────────────────
         with tab4:
             st.subheader("Gift Note Labels")
@@ -552,7 +552,7 @@ if uploaded_files:
                                            "gift_notes.pdf","application/pdf")
 
         # ─────────────────────────────────────────────────────────────────────
-        # TAB 5: MERGE Shipping Labels + Manufacturing Labels
+        # TAB 5: MERGE Shipping Labels + Manufacturing Labels (FIXED)
         # ─────────────────────────────────────────────────────────────────────
         with tab5:
             st.subheader("🔗 Merge Shipping Labels with Manufacturing Labels")
@@ -596,6 +596,7 @@ if uploaded_files:
                         with st.spinner("Merging PDFs by order..."):
                             # Index manufacturing pages by Order ID
                             mfg_index = index_mfg_pdf_by_order(st.session_state['mfg_labels_pdf'])
+                            
                             # Prepare Buyer → Order IDs mapping from df
                             buyer_to_oids = (
                                 df.groupby('Buyer')['Order ID']
@@ -605,38 +606,46 @@ if uploaded_files:
                             # Normalize buyer keys for fuzzy match
                             buyer_to_oids_norm = {normalize_name(k): v for k, v in buyer_to_oids.items()}
 
+                            # Read shipping labels with PyPDF2
                             ship_reader = PdfReader(ship_pdf)
                             mfg_reader = PdfReader(BytesIO(st.session_state['mfg_labels_pdf']))
                             writer = PdfWriter()
 
-                            unmatched_pages = 0
-                            for i, page in enumerate(ship_reader.pages):
-                                # Always add the shipping label page first
-                                writer.add_page(page)
+                            # IMPORTANT: Reset file pointer before using pdfplumber
+                            ship_pdf.seek(0)
+                            
+                            # Open with pdfplumber ONCE, outside the loop
+                            with pdfplumber.open(ship_pdf) as pdf_ship:
+                                unmatched_pages = 0
+                                
+                                for i, page in enumerate(ship_reader.pages):
+                                    # Always add the shipping label page first
+                                    writer.add_page(page)
 
-                                # Extract key
-                                with pdfplumber.open(ship_pdf) as pdf_ship:
+                                    # Extract text from the corresponding pdfplumber page
                                     page_txt = pdf_ship.pages[i].extract_text() or ""
-                                # try order id first
-                                m = ORDER_ID_RE.search(page_txt)
-                                added = False
-                                if m:
-                                    oid = m.group(0)
-                                    for pidx in mfg_index.get(oid, []):
-                                        writer.add_page(mfg_reader.pages[pidx])
-                                        added = True
-                                else:
-                                    # fallback to buyer name
-                                    key_type, buyer_guess = extract_shipping_key_from_page(pdf_ship.pages[i])
-                                    if key_type == "buyer_name":
-                                        oids = buyer_to_oids_norm.get(normalize_name(buyer_guess), [])
-                                        for oid in oids:
-                                            for pidx in mfg_index.get(oid, []):
-                                                writer.add_page(mfg_reader.pages[pidx])
-                                                added = True
+                                    
+                                    # Try order ID first
+                                    m = ORDER_ID_RE.search(page_txt)
+                                    added = False
+                                    
+                                    if m:
+                                        oid = m.group(0)
+                                        for pidx in mfg_index.get(oid, []):
+                                            writer.add_page(mfg_reader.pages[pidx])
+                                            added = True
+                                    else:
+                                        # Fallback to buyer name
+                                        key_type, buyer_guess = extract_shipping_key_from_page(pdf_ship.pages[i])
+                                        if key_type == "buyer_name":
+                                            oids = buyer_to_oids_norm.get(normalize_name(buyer_guess), [])
+                                            for oid in oids:
+                                                for pidx in mfg_index.get(oid, []):
+                                                    writer.add_page(mfg_reader.pages[pidx])
+                                                    added = True
 
-                                if not added:
-                                    unmatched_pages += 1  # keep track for user info
+                                    if not added:
+                                        unmatched_pages += 1
 
                             merged_out = BytesIO()
                             writer.write(merged_out)

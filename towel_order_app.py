@@ -284,15 +284,23 @@ def generate_manufacturing_label(c, data):
     c.setLineWidth(2);   c.rect(left, content_bottom, right-left, content_h, stroke=1, fill=0)
     c.setLineWidth(1.5); c.line(left_right + 0.04*inch, content_top, left_right + 0.04*inch, content_bottom)
 
-    # LEFT column (product specs)
+    # LEFT column (product specs) - UPDATED WITH QTY BETWEEN DIVIDERS
     col_y = content_top - 0.12*inch
     col_c = left + left_w/2
     c.setFont("Helvetica", 8); c.drawCentredString(col_c, col_y, "PRODUCT:"); col_y -= 0.22*inch
     c.setFont("Helvetica-Bold", 13); c.drawCentredString(col_c, col_y, data['product_type'].upper()); col_y -= 0.26*inch
     c.setFont("Helvetica-Bold", 16); c.drawCentredString(col_c, col_y, data['towel_color'].upper()); col_y -= 0.24*inch
+    
+    # FIRST DIVIDER (above QTY)
+    c.setLineWidth(0.5); c.line(left + 0.05*inch, col_y, left_right - 0.05*inch, col_y); col_y -= 0.18*inch
+    
+    # QTY in the middle (sandwiched between dividers)
     c.setFont("Helvetica-BoldOblique" if int(data['quantity'])>2 else "Helvetica-Bold", 18)
-    c.drawCentredString(col_c, col_y, f"QTY: {data['quantity']}"); col_y -= 0.34*inch
+    c.drawCentredString(col_c, col_y, f"QTY: {data['quantity']}"); col_y -= 0.18*inch
+    
+    # SECOND DIVIDER (below QTY)
     c.setLineWidth(0.5); c.line(left + 0.05*inch, col_y, left_right - 0.05*inch, col_y); col_y -= 0.24*inch
+    
     c.setFont("Helvetica", 8); c.drawCentredString(col_c, col_y, "THREAD COLOR:"); col_y -= 0.2*inch
     c.setFont("Helvetica-Bold", 15); c.drawCentredString(col_c, col_y, data['thread_color'].upper()); col_y -= 0.14*inch
     c.setFont("Helvetica", 10); c.drawCentredString(col_c, col_y, get_spanish_color(data['thread_color']))

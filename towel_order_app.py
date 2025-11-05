@@ -85,31 +85,31 @@ def parse_towel_orders(pdf_file):
                 if 'Set-6Pcs' in sku:
                     product_type = '6-pc Set'
                     fields = [
-                        ('Washcloth 1', r'First Washcloth:\s*(.+?)(?:\n|Second)'),
-                        ('Washcloth 2', r'Second Washcloth:\s*(.+?)(?:\n|First Hand)'),
-                        ('Hand Towel 1', r'First Hand Towel:\s*(.+?)(?:\n|Second Hand)'),
-                        ('Hand Towel 2', r'Second Hand Towel:\s*(.+?)(?:\n|First Bath)'),
-                        ('Bath Towel 1', r'First Bath Towel:\s*(.+?)(?:\n|Second Bath)'),
-                        ('Bath Towel 2', r'Second Bath Towel:\s*(.+?)(?:\n|Item|Grand|Gift|Add|Choose|$)'),
+                        ('Small 1', r'First Washcloth:\s*(.+?)(?:\n|Second)'),
+                        ('Small 2', r'Second Washcloth:\s*(.+?)(?:\n|First Hand)'),
+                        ('Medium 1', r'First Hand Towel:\s*(.+?)(?:\n|Second Hand)'),
+                        ('Medium 2', r'Second Hand Towel:\s*(.+?)(?:\n|First Bath)'),
+                        ('Large 1', r'First Bath Towel:\s*(.+?)(?:\n|Second Bath)'),
+                        ('Large 2', r'Second Bath Towel:\s*(.+?)(?:\n|Item|Grand|Gift|Add|Choose|$)'),
                     ]
                 elif 'Set-3Pcs' in sku:
                     product_type = '3-pc Set'
                     fields = [
-                        ('Washcloth', r'Washcloth:\s*(.+?)(?:\n|Hand Towel)'),
-                        ('Hand Towel', r'Hand Towel:\s*(.+?)(?:\n|Bath Towel)'),
-                        ('Bath Towel', r'Bath Towel:\s*(.+?)(?:\n|Item|Grand|Gift|Add|$)'),
+                        ('Small', r'Washcloth:\s*(.+?)(?:\n|Hand Towel)'),
+                        ('Medium', r'Hand Towel:\s*(.+?)(?:\n|Bath Towel)'),
+                        ('Large', r'Bath Towel:\s*(.+?)(?:\n|Item|Grand|Gift|Add|$)'),
                     ]
                 elif 'HT-2' in sku or 'HT-2PCS' in sku or 'HT-2Pcs' in sku:
                     product_type = '2-pc Hand Towel'
                     fields = [
-                        ('Hand Towel 1', r'First Hand Towel:\s*(.+?)(?:\n|Second)'),
-                        ('Hand Towel 2', r'Second Hand Towel:\s*(.+?)(?:\n|Item|Grand|$)'),
+                        ('Medium 1', r'First Hand Towel:\s*(.+?)(?:\n|Second)'),
+                        ('Medium 2', r'Second Hand Towel:\s*(.+?)(?:\n|Item|Grand|$)'),
                     ]
                 elif 'BT-2' in sku or 'BT-2Pcs' in sku:
                     product_type = '2-pc Bath Towel'
                     fields = [
-                        ('Bath Towel 1', r'First Bath Towel:\s*(.+?)(?:\n|Second)'),
-                        ('Bath Towel 2', r'Second Bath Towel:\s*(.+?)(?:\n|Item|Grand|$)'),
+                        ('Large 1', r'First Bath Towel:\s*(.+?)(?:\n|Second)'),
+                        ('Large 2', r'Second Bath Towel:\s*(.+?)(?:\n|Item|Grand|$)'),
                     ]
                 elif 'BS-1' in sku or 'BS-1Pcs' in sku:
                     product_type = 'Bath Sheet (Oversized)'
@@ -303,7 +303,7 @@ def generate_manufacturing_label(c, data):
     
     c.setFont("Helvetica", 8); c.drawCentredString(col_c, col_y, "THREAD COLOR:"); col_y -= 0.2*inch
     c.setFont("Helvetica-Bold", 15); c.drawCentredString(col_c, col_y, data['thread_color'].upper()); col_y -= 0.14*inch
-    c.setFont("Helvetica", 10); c.drawCentredString(col_c, col_y, get_spanish_color(data['thread_color']))
+    c.setFont("Helvetica", 12); c.drawCentredString(col_c, col_y, get_spanish_color(data['thread_color']))
 
     # RIGHT column header
     right_header_y = content_top - 0.12*inch

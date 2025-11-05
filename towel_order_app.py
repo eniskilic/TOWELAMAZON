@@ -169,9 +169,9 @@ def wrapped_height(items, label_fs, text_fs, width_pts):
     for i, (_, value) in enumerate(items):
         lines = simpleSplit(value, "Helvetica-BoldOblique", text_fs, width_pts)
         total += label_lead + max(1, len(lines)) * text_lead
-        # Add extra spacing between items (except after last item) - increased to 75%
+        # Add extra spacing between items (except after last item) - back to 50%
         if i < len(items) - 1:
-            total += text_lead * 0.75
+            total += text_lead * 0.5
     return total, label_lead, text_lead
 
 def fit_fonts(items, width_pts, height_pts, start_label, start_text, min_fs=8):
@@ -314,7 +314,7 @@ def generate_manufacturing_label(c, data):
     c.drawString(right_left + 0.05*inch, right_header_y, "PERSONALIZATION:")
 
     # Usable area (within the fixed box, with MORE padding after header)
-    pad_t, pad_b, pad_r, pad_l = 0.20*inch, 0.10*inch, 0.10*inch, 0.08*inch  # Increased top padding from 0.10 to 0.20
+    pad_t, pad_b, pad_r, pad_l = 0.20*inch, 0.10*inch, 0.10*inch, 0.08*inch  # Keep 0.20" after header
     usable_top    = right_header_y - pad_t
     usable_bottom = content_bottom + pad_b
     usable_height = max(1, usable_top - usable_bottom)
@@ -340,9 +340,9 @@ def generate_manufacturing_label(c, data):
         for ln in lines:
             if ytxt - text_lead < usable_bottom: overflow=True; break
             c.setFont("Helvetica-BoldOblique", text_fs); c.drawString(x, ytxt, ln); ytxt -= text_lead
-        # Add extra spacing between items for better readability (increased from 0.5 to 0.75)
+        # Add extra spacing between items - back to 50%
         if idx < len(items) - 1:  # Don't add extra space after last item
-            ytxt -= text_lead * 0.75  # Add 75% more spacing between items (was 50%)
+            ytxt -= text_lead * 0.5  # 50% spacing between items
         if overflow: break
 
     if overflow:

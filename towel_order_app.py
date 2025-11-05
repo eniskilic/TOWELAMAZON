@@ -166,9 +166,12 @@ def wrapped_height(items, label_fs, text_fs, width_pts):
     label_lead = label_fs * 1.15
     text_lead  = text_fs  * 1.25
     total = 0
-    for _, value in items:
+    for i, (_, value) in enumerate(items):
         lines = simpleSplit(value, "Helvetica-BoldOblique", text_fs, width_pts)
         total += label_lead + max(1, len(lines)) * text_lead
+        # Add extra spacing between items (except after last item)
+        if i < len(items) - 1:
+            total += text_lead * 0.5
     return total, label_lead, text_lead
 
 def fit_fonts(items, width_pts, height_pts, start_label, start_text, min_fs=8):
@@ -289,14 +292,14 @@ def generate_manufacturing_label(c, data):
     col_c = left + left_w/2
     c.setFont("Helvetica", 8); c.drawCentredString(col_c, col_y, "PRODUCT:"); col_y -= 0.22*inch
     c.setFont("Helvetica-Bold", 13); c.drawCentredString(col_c, col_y, data['product_type'].upper()); col_y -= 0.26*inch
-    c.setFont("Helvetica-Bold", 16); c.drawCentredString(col_c, col_y, data['towel_color'].upper()); col_y -= 0.24*inch
+    c.setFont("Helvetica-Bold", 16); c.drawCentredString(col_c, col_y, data['towel_color'].upper()); col_y -= 0.30*inch
     
     # FIRST DIVIDER (above QTY)
-    c.setLineWidth(0.5); c.line(left + 0.05*inch, col_y, left_right - 0.05*inch, col_y); col_y -= 0.18*inch
+    c.setLineWidth(0.5); c.line(left + 0.05*inch, col_y, left_right - 0.05*inch, col_y); col_y -= 0.22*inch
     
-    # QTY in the middle (sandwiched between dividers)
+    # QTY in the middle (sandwiched between dividers) - CENTERED
     c.setFont("Helvetica-BoldOblique" if int(data['quantity'])>2 else "Helvetica-Bold", 18)
-    c.drawCentredString(col_c, col_y, f"QTY: {data['quantity']}"); col_y -= 0.18*inch
+    c.drawCentredString(col_c, col_y, f"QTY: {data['quantity']}"); col_y -= 0.22*inch
     
     # SECOND DIVIDER (below QTY)
     c.setLineWidth(0.5); c.line(left + 0.05*inch, col_y, left_right - 0.05*inch, col_y); col_y -= 0.24*inch
@@ -337,6 +340,9 @@ def generate_manufacturing_label(c, data):
         for ln in lines:
             if ytxt - text_lead < usable_bottom: overflow=True; break
             c.setFont("Helvetica-BoldOblique", text_fs); c.drawString(x, ytxt, ln); ytxt -= text_lead
+        # Add extra spacing between items for better readability
+        if idx < len(items) - 1:  # Don't add extra space after last item
+            ytxt -= text_lead * 0.5  # Add 50% more spacing between items
         if overflow: break
 
     if overflow:

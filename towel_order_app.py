@@ -169,9 +169,9 @@ def wrapped_height(items, label_fs, text_fs, width_pts):
     for i, (_, value) in enumerate(items):
         lines = simpleSplit(value, "Helvetica-BoldOblique", text_fs, width_pts)
         total += label_lead + max(1, len(lines)) * text_lead
-        # Add extra spacing between items (except after last item) - REDUCED to 25%
+        # Add extra spacing between items (except after last item) - REDUCED to 15%
         if i < len(items) - 1:
-            total += text_lead * 0.25
+            total += text_lead * 0.15
     return total, label_lead, text_lead
 
 def fit_fonts(items, width_pts, height_pts, start_label, start_text, min_fs=8):
@@ -340,9 +340,9 @@ def generate_manufacturing_label(c, data):
         for ln in lines:
             if ytxt - text_lead < usable_bottom: overflow=True; break
             c.setFont("Helvetica-BoldOblique", text_fs); c.drawString(x, ytxt, ln); ytxt -= text_lead
-        # Add extra spacing between items - REDUCED to 25%
+        # Add extra spacing between items - REDUCED to 15%
         if idx < len(items) - 1:  # Don't add extra space after last item
-            ytxt -= text_lead * 0.25  # 25% spacing between items
+            ytxt -= text_lead * 0.15  # 15% spacing between items
         if overflow: break
 
     if overflow:

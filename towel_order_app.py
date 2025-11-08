@@ -268,9 +268,9 @@ def generate_manufacturing_label(c, data):
     left_right = left + left_w
     right_left = left_right + 0.08*inch
 
-    # Content box heights (adjust if gift note present)
-    MAX_CONTENT_H_IN   = 3.05 if not data['has_gift_note'] else 2.70
-    SIX_PC_CONTENT_IN  = 2.95 if not data['has_gift_note'] else 2.60
+    # Content box heights (FIXED: increased for 6-piece sets)
+    MAX_CONTENT_H_IN   = 3.10 if not data['has_gift_note'] else 2.75
+    SIX_PC_CONTENT_IN  = 3.10 if not data['has_gift_note'] else 2.75
     THREE_PC_CONTENT_IN= 2.55 if not data['has_gift_note'] else 2.20
     FEW_CONTENT_IN     = 2.35 if not data['has_gift_note'] else 2.00
 

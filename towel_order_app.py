@@ -493,30 +493,18 @@ if uploaded_files:
                                            use_container_width=True, key="dl_all")
 
         # ─────────────────────────────────────────────────────────────────────
-        # TAB 2: Manufacturing Plan (COLOR-BASED WITH BOBBIN GROUPING)
+        # TAB 2: Manufacturing Plan (SIMPLE COLOR-BASED SUMMARY)
         # ─────────────────────────────────────────────────────────────────────
         with tab2:
-            st.title("🏭 Manufacturing Plan - Color-Based Production")
-            st.markdown("*6-pc sets = 2 production units (2× 3-pc sets) | Navy Blue + Black threads = Black Bobbin*")
+            st.title("🏭 Manufacturing Plan - Color-Based Summary")
+            st.markdown("*6-pc sets = 2 production units (2× 3-pc sets)*")
             
             # Prepare manufacturing dataframe
             df_mfg = df.copy()
             def units(r): return (int(r['Quantity']) * 2) if '6-pc' in r['Product Type'].lower() else int(r['Quantity'])
             df_mfg['Mfg_Units'] = df_mfg.apply(units, axis=1)
             
-            # Bobbin grouping function
-            def get_bobbin(thread_color):
-                tc = (thread_color or "").upper().strip()
-                if tc in ['NAVY', 'NAVY BLUE', 'BLACK']:
-                    return 'BLACK BOBBIN'
-                else:
-                    return 'WHITE BOBBIN'
-            
-            df_mfg['Bobbin'] = df_mfg['Thread Color'].apply(get_bobbin)
-            
-            # ═══════════════════════════════════════════════════════════════
-            # SECTION A: EXECUTIVE SUMMARY
-            # ═══════════════════════════════════════════════════════════════
+            # Executive Summary
             st.header("📊 Executive Summary")
             c1, c2, c3, c4 = st.columns(4)
             with c1: st.metric("Total Orders", len(df['Order ID'].unique()))
@@ -525,164 +513,42 @@ if uploaded_files:
             with c4: st.metric("Gift Notes", int((df['Gift Message']=='YES').sum()))
             
             st.markdown("---")
+            st.header("🎨 Production by Towel Color")
             
-            # Bobbin breakdown
-            st.subheader("🧵 Bobbin Setup Requirements")
-            bobbin_summary = df_mfg.groupby('Bobbin').agg({'Mfg_Units':'sum','Order ID':'count'}) \
-                           .rename(columns={'Mfg_Units':'Production Units','Order ID':'Line Items'}) \
-                           .sort_values('Production Units', ascending=False)
-            bobbin_summary['Production Units'] = bobbin_summary['Production Units'].astype(int)
-            
-            cols_b = st.columns(2)
-            for i, (bobbin, row) in enumerate(bobbin_summary.iterrows()):
-                with cols_b[i % 2]:
-                    st.metric(f"🎯 {bobbin}", f"{row['Production Units']} units", f"{row['Line Items']} items")
-            
-            st.markdown("---")
-            
-            # Towel color breakdown
-            st.subheader("🎨 Towel Color Inventory Needs")
-            color_summary = df_mfg.groupby('Color').agg({'Mfg_Units':'sum','Order ID':'count'}) \
-                          .rename(columns={'Mfg_Units':'Production Units','Order ID':'Line Items'}) \
-                          .sort_values('Production Units', ascending=False)
-            color_summary['Production Units'] = color_summary['Production Units'].astype(int)
-            
-            cols_c = st.columns(min(len(color_summary), 4) or 1)
-            for i, (color, row) in enumerate(color_summary.iterrows()):
-                with cols_c[i % len(cols_c)]:
-                    st.metric(f"🎨 {color}", f"{row['Production Units']} units", f"{row['Line Items']} items")
-            
-            st.markdown("---")
-            
-            # ═══════════════════════════════════════════════════════════════
-            # SECTION B: PRODUCTION BATCHES (COLOR-BASED)
-            # ═══════════════════════════════════════════════════════════════
-            st.header("🏭 Production Batches - Organized by Towel Color")
-            st.markdown("**Instructions:** Complete all orders for each towel color before switching inventory")
-            
-            # Sort by towel color, then bobbin, then order
-            df_sorted = df_mfg.sort_values(['Color', 'Bobbin', 'Order ID'])
-            
-            for towel_color in df_sorted['Color'].unique():
-                color_df = df_sorted[df_sorted['Color'] == towel_color]
+            # Group by color and product type
+            for towel_color in sorted(df_mfg['Color'].unique()):
+                color_df = df_mfg[df_mfg['Color'] == towel_color]
                 total_color_units = int(color_df['Mfg_Units'].sum())
                 
                 with st.expander(f"🎨 **{towel_color.upper()}** - {total_color_units} Production Units", expanded=True):
-                    st.markdown(f"### Towel Color: {towel_color}")
+                    st.markdown(f"### {towel_color.upper()}")
                     
-                    # Sub-batches by bobbin
-                    for bobbin in color_df['Bobbin'].unique():
-                        bobbin_df = color_df[color_df['Bobbin'] == bobbin]
-                        bobbin_units = int(bobbin_df['Mfg_Units'].sum())
-                        
-                        st.markdown(f"#### 🧵 {bobbin} - {bobbin_units} Units")
-                        
-                        # Create batch table
-                        batch_rows = []
-                        for idx, row in bobbin_df.iterrows():
-                            customizations = ' | '.join([f"{l}: {v}" for l, v in row['_item_obj']['customizations']])
-                            gift_flag = "🎁" if row['Gift Message'] == 'YES' else ""
-                            
-                            batch_rows.append({
-                                '✓': '☐',
-                                'Order ID': row['Order ID'],
-                                'Buyer': row['Buyer'],
-                                'Product': row['Product Type'],
-                                'Qty': row['Quantity'],
-                                'Units': int(row['Mfg_Units']),
-                                'Thread': row['Thread Color'],
-                                'Customizations': customizations,
-                                'Gift': gift_flag
-                            })
-                        
-                        batch_df = pd.DataFrame(batch_rows)
-                        st.dataframe(batch_df, use_container_width=True, hide_index=True)
-                        
-                        # Bobbin subtotal
-                        st.markdown(f"**Subtotal for {bobbin}:** {bobbin_units} units")
-                        st.markdown("---")
+                    # Summarize by product type
+                    product_summary = color_df.groupby('Product Type').agg({
+                        'Quantity': 'sum',
+                        'Mfg_Units': 'sum'
+                    }).sort_values('Product Type')
                     
-                    # Color total
-                    st.markdown(f"**✅ TOTAL FOR {towel_color.upper()}:** {total_color_units} Production Units**")
-                    st.markdown("═" * 80)
-            
-            st.markdown("---")
-            
-            # ═══════════════════════════════════════════════════════════════
-            # SECTION C: BOBBIN SETUP SCHEDULE (OPTIMIZED SEQUENCE)
-            # ═══════════════════════════════════════════════════════════════
-            st.header("🎯 Bobbin Setup Schedule - Optimized Sequence")
-            st.markdown("**Recommended production sequence to minimize bobbin changes:**")
-            
-            # Group by bobbin and show which colors to complete
-            for bobbin in ['BLACK BOBBIN', 'WHITE BOBBIN']:
-                bobbin_data = df_mfg[df_mfg['Bobbin'] == bobbin]
-                if len(bobbin_data) == 0:
-                    continue
-                
-                total_units = int(bobbin_data['Mfg_Units'].sum())
-                colors_in_bobbin = bobbin_data['Color'].unique()
-                
-                st.subheader(f"🧵 {bobbin} - {total_units} Total Units")
-                st.markdown(f"**Towel Colors to Complete:** {', '.join(colors_in_bobbin)}")
-                
-                # Show thread colors in this bobbin
-                thread_breakdown = bobbin_data.groupby('Thread Color')['Mfg_Units'].sum().sort_values(ascending=False)
-                thread_list = [f"{tc} ({int(units)} units)" for tc, units in thread_breakdown.items()]
-                st.markdown(f"**Thread Colors:** {', '.join(thread_list)}")
-                st.markdown("---")
-            
-            st.markdown("---")
-            
-            # ═══════════════════════════════════════════════════════════════
-            # SECTION D: GIFT NOTE TRACKING
-            # ═══════════════════════════════════════════════════════════════
-            st.header("🎁 Gift Note Tracking")
-            gift_df = df_mfg[df_mfg['Gift Message'] == 'YES']
-            
-            if len(gift_df) == 0:
-                st.info("No orders require gift notes in this batch")
-            else:
-                st.markdown(f"**{len(gift_df)} orders require gift notes**")
-                
-                gift_rows = []
-                for idx, row in gift_df.iterrows():
-                    gift_rows.append({
-                        '✓': '☐',
-                        'Order ID': row['Order ID'],
-                        'Buyer': row['Buyer'],
-                        'Towel Color': row['Color'],
-                        'Product': row['Product Type'],
-                        'Gift Message': row['_item_obj']['gift_message']
-                    })
-                
-                gift_table = pd.DataFrame(gift_rows)
-                st.dataframe(gift_table, use_container_width=True, hide_index=True)
-            
-            st.markdown("---")
-            
-            # ═══════════════════════════════════════════════════════════════
-            # ADDITIONAL ANALYTICS
-            # ═══════════════════════════════════════════════════════════════
-            st.header("📈 Additional Analytics")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.subheader("Product Type Distribution")
-                prod = df_mfg.groupby('Product Type').agg({'Quantity':'sum','Mfg_Units':'sum','Order ID':'count'}) \
-                            .rename(columns={'Quantity':'Ordered Qty','Mfg_Units':'Production Units','Order ID':'Line Items'}) \
-                            .sort_values('Production Units', ascending=False)
-                prod['Ordered Qty'] = pd.to_numeric(prod['Ordered Qty'], errors='coerce').fillna(0).astype('int64')
-                prod['Production Units'] = prod['Production Units'].astype(int)
-                st.dataframe(prod, use_container_width=True)
-            
-            with col2:
-                st.subheader("Color × Bobbin Matrix")
-                matrix = df_mfg.groupby(['Color','Bobbin'])['Mfg_Units'].sum().unstack(fill_value=0).astype(int)
-                matrix['TOTAL'] = matrix.sum(axis=1)
-                matrix.loc['TOTAL'] = matrix.sum()
-                st.dataframe(matrix, use_container_width=True)
+                    # Display each product type
+                    for product_type, row in product_summary.iterrows():
+                        qty = int(row['Quantity'])
+                        prod_units = int(row['Mfg_Units'])
+                        
+                        if '6-pc' in product_type.lower():
+                            st.markdown(f"**6-pc Set:** {qty} sets ({prod_units} production units)")
+                        elif '3-pc' in product_type.lower():
+                            st.markdown(f"**3-pc Set:** {qty} sets")
+                        elif 'Bath Sheet' in product_type:
+                            st.markdown(f"**Bath Sheet (Oversized):** {qty} units")
+                        elif '2-pc Bath' in product_type:
+                            st.markdown(f"**2-pc Bath Towel:** {qty} sets")
+                        elif '2-pc Hand' in product_type:
+                            st.markdown(f"**2-pc Hand Towel:** {qty} sets")
+                        else:
+                            st.markdown(f"**{product_type}:** {qty} units")
+                    
+                    st.markdown(f"**TOTAL PRODUCTION UNITS: {total_color_units}**")
+                    st.markdown("---")
 
         # ─────────────────────────────────────────────────────────────────────
         # TAB 3: Generate selected labels

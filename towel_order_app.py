@@ -33,7 +33,7 @@ COLOR_TRANSLATIONS = {
 def get_spanish_color(c): return COLOR_TRANSLATIONS.get((c or "").upper().strip(), c or "")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PDF parser
+# PDF parser (Updated for strict Gift Note detection)
 # ─────────────────────────────────────────────────────────────────────────────
 def parse_towel_orders(pdf_file):
     orders = []
@@ -120,15 +120,25 @@ def parse_towel_orders(pdf_file):
                         m = re.search(pat, content)
                         if m: custom.append((lbl, m.group(1).strip()))
 
-                # Gift message detection
+                # ─────────────────────────────────────────────────────────────
+                # GIFT NOTE DETECTION LOGIC
+                # ─────────────────────────────────────────────────────────────
                 gift = ''
                 has_gift_card = False
-                m = re.search(r'Gift Message:\s*(.+?)(?:\n|Item|Grand|$)', content)
-                if m: 
-                    gift = m.group(1).strip()
+                
+                # 1. Check for the specific boolean flag in the text
+                if "Gift Bag and Gift Note Please!" in content:
                     has_gift_card = True
                 
-                if re.search(r'Add Gift Card - Line [123]:', content, re.IGNORECASE):
+                # 2. Extract message if present (Supports "Card Note", "Gift Card Note", "Gift Message")
+                #    This regex is broader to catch 'Card Note' from Order 114-3568674-1394625
+                msg_match = re.search(r'(?:Gift Note|Gift Card Note|Card Note|Gift Message):\s*(.+?)(?:\n|Item|Grand|Please CHECK|$)', content, re.IGNORECASE)
+                if msg_match:
+                    gift = msg_match.group(1).strip()
+                    has_gift_card = True # Message exists, implies gift note
+                
+                # 3. Fallback for multi-line gift cards
+                if not gift and re.search(r'Add Gift Card - Line [123]:', content, re.IGNORECASE):
                     has_gift_card = True
                     gift_lines = []
                     for line_num in [1, 2, 3]:
@@ -137,12 +147,6 @@ def parse_towel_orders(pdf_file):
                             gift_lines.append(m.group(1).strip())
                     if gift_lines:
                         gift = ' '.join(gift_lines)
-                
-                if not has_gift_card:
-                    m = re.search(r'Add Gift Card:\s*(.+?)(?:\n|Item|Grand|$)', content)
-                    if m and m.group(1).strip():
-                        gift = m.group(1).strip()
-                        has_gift_card = True
 
                 current['items'].append({
                     'sku': sku, 'product_type': product_type, 'towel_color': towel_color,
@@ -221,7 +225,8 @@ def generate_manufacturing_label(c, data):
     left, right = 0.25 * inch, (6 * inch) - 0.25 * inch
     y = (4 * inch) - 0.25 * inch
 
-    # --- UPDATE: GIFT NOTE BANNER (TOP) ---
+    # --- GIFT NOTE BANNER (TOP) ---
+    # Triggers if has_gift_card is True (set by "Gift Bag and Gift Note Please!" OR explicit message)
     if data['has_gift_note']:
         banner_height = 0.35 * inch
         banner_y = y
@@ -302,11 +307,10 @@ def generate_manufacturing_label(c, data):
     c.setFont("Helvetica", 8); c.drawCentredString(col_c, col_y, "THREAD COLOR:"); col_y -= 0.2*inch
     c.setFont("Helvetica-Bold", 15); c.drawCentredString(col_c, col_y, data['thread_color'].upper()); col_y -= 0.14*inch
     c.setFont("Helvetica", 12); c.drawCentredString(col_c, col_y, get_spanish_color(data['thread_color']))
-    col_y -= 0.24 * inch # Extra space
+    col_y -= 0.24 * inch 
 
-    # --- UPDATE: FONT NAME ---
+    # FONT NAME
     c.setFont("Helvetica", 8); c.drawCentredString(col_c, col_y, "FONT:"); col_y -= 0.16*inch
-    # Adjust font size if the font name is long
     font_fs = 12 if len(data['font']) < 15 else 10
     c.setFont("Helvetica-Bold", font_fs); c.drawCentredString(col_c, col_y, data['font'])
 
@@ -427,7 +431,7 @@ if uploaded_files:
                     'Color': it['towel_color'],'Quantity': it['quantity'],'Font': it['font'],
                     'Thread Color': it['font_color'],
                     'Customizations': ' | '.join([f"{l}: {t}" for l,t in it['customizations']]),
-                    'Gift Message': 'YES' if it['gift_message'] else 'NO',
+                    'Gift Message': 'YES' if it['has_gift_card'] else 'NO',
                     '_order_obj': o, '_item_obj': it
                 })
         df = pd.DataFrame(rows); df.index = range(1, len(df)+1)
@@ -462,7 +466,7 @@ if uploaded_files:
                             'product_type': it['product_type'], 'towel_color': it['towel_color'],
                             'thread_color': it['font_color'], 'font': it['font'],
                             'customizations': it['customizations'],
-                            'has_gift_note': it.get('has_gift_card', bool(it['gift_message'])),
+                            'has_gift_note': it['has_gift_card'],
                             'item_number': r['item_number'], 'item_count': r['item_count']
                         }
                         generate_manufacturing_label(c, data); c.showPage()
@@ -548,7 +552,7 @@ if uploaded_files:
                                 'product_type': it['product_type'], 'towel_color': it['towel_color'],
                                 'thread_color': it['font_color'], 'font': it['font'],
                                 'customizations': it['customizations'],
-                                'has_gift_note': it.get('has_gift_card', bool(it['gift_message'])),
+                                'has_gift_note': it['has_gift_card'],
                                 'item_number': r['item_number'], 'item_count': r['item_count']
                             }
                             generate_manufacturing_label(c, data); c.showPage()

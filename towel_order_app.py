@@ -33,7 +33,7 @@ COLOR_TRANSLATIONS = {
 def get_spanish_color(c): return COLOR_TRANSLATIONS.get((c or "").upper().strip(), c or "")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PDF parser (Updated for strict Gift Note detection)
+# PDF parser
 # ─────────────────────────────────────────────────────────────────────────────
 def parse_towel_orders(pdf_file):
     orders = []
@@ -130,12 +130,11 @@ def parse_towel_orders(pdf_file):
                 if "Gift Bag and Gift Note Please!" in content:
                     has_gift_card = True
                 
-                # 2. Extract message if present (Supports "Card Note", "Gift Card Note", "Gift Message")
-                #    This regex is broader to catch 'Card Note' from Order 114-3568674-1394625
+                # 2. Extract message if present
                 msg_match = re.search(r'(?:Gift Note|Gift Card Note|Card Note|Gift Message):\s*(.+?)(?:\n|Item|Grand|Please CHECK|$)', content, re.IGNORECASE)
                 if msg_match:
                     gift = msg_match.group(1).strip()
-                    has_gift_card = True # Message exists, implies gift note
+                    has_gift_card = True
                 
                 # 3. Fallback for multi-line gift cards
                 if not gift and re.search(r'Add Gift Card - Line [123]:', content, re.IGNORECASE):
@@ -226,26 +225,30 @@ def generate_manufacturing_label(c, data):
     y = (4 * inch) - 0.25 * inch
 
     # --- GIFT NOTE BANNER (TOP) ---
-    # Triggers if has_gift_card is True (set by "Gift Bag and Gift Note Please!" OR explicit message)
+    # Updated for Thermal Printers: Black Background, White Text
     if data['has_gift_note']:
         banner_height = 0.35 * inch
         banner_y = y
         y -= banner_height  # Move everything else down
         
-        # Draw banner box
-        c.setFillColor(colors.HexColor('#D32F2F'))
-        c.setStrokeColor(colors.HexColor('#B71C1C'))
+        # Draw Solid Black Banner
+        c.setFillColor(colors.black)
+        c.setStrokeColor(colors.black)
         c.setLineWidth(3)
         c.rect(left, banner_y - banner_height, right - left, banner_height, stroke=1, fill=1)
         
-        # Draw "GIFT NOTE" title
+        # Draw "GIFT NOTE" title in White
         c.setFillColor(colors.white)
         c.setFont("Helvetica-Bold", 20)
         text_y = banner_y - banner_height/2 - 0.07*inch
         c.drawCentredString((left + right) / 2, text_y, "🎁 GIFT NOTE 🎁")
 
+    # CRITICAL: Reset colors to black for the rest of the label
+    c.setFillColor(colors.black)
+    c.setStrokeColor(colors.black)
+
     # Header
-    c.setFont("Helvetica-Bold", 13); c.setFillColor(colors.black)
+    c.setFont("Helvetica-Bold", 13)
     c.drawString(left, y, data['buyer'])
     
     if data['item_count'] > 1:
@@ -313,7 +316,6 @@ def generate_manufacturing_label(c, data):
     c.setFont("Helvetica", 8); c.drawCentredString(col_c, col_y, "FONT:"); col_y -= 0.16*inch
     font_fs = 12 if len(data['font']) < 15 else 10
     c.setFont("Helvetica-Bold", font_fs); c.drawCentredString(col_c, col_y, data['font'])
-
 
     # RIGHT column header
     right_header_y = content_top - 0.12*inch

@@ -103,17 +103,17 @@ def parse_towel_orders(pdf_file):
                     product_type = '2-pc Hand Towel'
                     fields = [
                         ('Medium 1', r'First Hand Towel:\s*(.+?)(?:\n|Second)'),
-                        ('Medium 2', r'Second Hand Towel:\s*(.+?)(?:\n|Item|Grand|$)'),
+                        ('Medium 2', r'Second Hand Towel:\s*(.+?)(?:\n|Item|Grand|Gift|$)'),
                     ]
                 elif 'BT-2' in sku or 'BT-2Pcs' in sku:
                     product_type = '2-pc Bath Towel'
                     fields = [
                         ('Large 1', r'First Bath Towel:\s*(.+?)(?:\n|Second)'),
-                        ('Large 2', r'Second Bath Towel:\s*(.+?)(?:\n|Item|Grand|$)'),
+                        ('Large 2', r'Second Bath Towel:\s*(.+?)(?:\n|Item|Grand|Gift|$)'),
                     ]
                 elif 'BS-1' in sku or 'BS-1Pcs' in sku:
                     product_type = 'Bath Sheet (Oversized)'
-                    fields = [('Bath Sheet', r'Oversized Bath Sheet:\s*(.+?)(?:\n|Item|Grand|$)')]
+                    fields = [('Bath Sheet', r'Oversized Bath Sheet:\s*(.+?)(?:\n|Item|Grand|Gift|$)')]
 
                 if fields:
                     for lbl, pat in fields:
@@ -124,13 +124,19 @@ def parse_towel_orders(pdf_file):
                 gift = ''
                 has_gift_card = False
                 
-                # Check for "Gift Message:" pattern
+                # 1. Check for "Gift Message:" pattern (Old format)
                 m = re.search(r'Gift Message:\s*(.+?)(?:\n|Item|Grand|$)', content)
                 if m: 
                     gift = m.group(1).strip()
                     has_gift_card = True
+
+                # 2. Check for "Gift Card Note:" (NEW FORMAT from 1121 pdf)
+                m = re.search(r'Gift Card Note:\s*(.+?)(?:\n|Item|Grand|Please CHECK|$)', content)
+                if m:
+                    gift = m.group(1).strip()
+                    has_gift_card = True
                 
-                # Check for "Add Gift Card - Line 1/2/3:" patterns
+                # 3. Check for "Add Gift Card - Line 1/2/3:" patterns
                 if re.search(r'Add Gift Card - Line [123]:', content, re.IGNORECASE):
                     has_gift_card = True
                     # Try to extract the gift card text
@@ -142,7 +148,11 @@ def parse_towel_orders(pdf_file):
                     if gift_lines:
                         gift = ' '.join(gift_lines)
                 
-                # Fallback check
+                # 4. Check for explicit "Gift Bag and Gift Note Please!" trigger (Requested Feature)
+                if "Gift Bag and Gift Note Please!" in content:
+                    has_gift_card = True
+                
+                # 5. Fallback check
                 if not has_gift_card:
                     m = re.search(r'Add Gift Card:\s*(.+?)(?:\n|Item|Grand|$)', content)
                     if m and m.group(1).strip():
@@ -599,17 +609,35 @@ if uploaded_files:
                     with b:
                         with st.expander(f"**{row['Order ID']}** — {row['Buyer']}"):
                             st.write(f"**Message:** {it['gift_message']}")
-                if chosen and st.button("🎁 Generate Selected Gift Notes", type="primary"):
-                    with st.spinner("Generating gift notes..."):
-                        out = BytesIO(); c = canvas.Canvas(out, pagesize=landscape((4*inch,6*inch)))
-                        for idx in chosen:
-                            r = gifts.loc[idx]; o, it = r['_order_obj'], r['_item_obj']
-                            generate_gift_note(c, o['order_id'], o['buyer_name'], it['gift_message'])
-                            c.showPage()
-                        c.save(); out.seek(0)
-                        st.session_state['gift_notes_pdf'] = out.getvalue()
-                        st.download_button("📥 Download Gift Notes PDF", out.getvalue(),
-                                           "gift_notes.pdf","application/pdf")
+                
+                # BUTTONS FOR GENERATION
+                c1, c2 = st.columns(2)
+                
+                with c1:
+                    if chosen and st.button("🎁 Generate Selected Gift Notes", type="primary"):
+                        with st.spinner("Generating gift notes..."):
+                            out = BytesIO(); c = canvas.Canvas(out, pagesize=landscape((4*inch,6*inch)))
+                            for idx in chosen:
+                                r = gifts.loc[idx]; o, it = r['_order_obj'], r['_item_obj']
+                                generate_gift_note(c, o['order_id'], o['buyer_name'], it['gift_message'])
+                                c.showPage()
+                            c.save(); out.seek(0)
+                            st.session_state['gift_notes_pdf'] = out.getvalue()
+                            st.download_button("📥 Download Selected Gift Notes PDF", out.getvalue(),
+                                            "gift_notes_selected.pdf","application/pdf")
+                
+                with c2:
+                    if st.button("🎁 Generate ALL Gift Notes"):
+                        with st.spinner("Generating ALL gift notes..."):
+                            out = BytesIO(); c = canvas.Canvas(out, pagesize=landscape((4*inch,6*inch)))
+                            for idx, row in gifts.iterrows():
+                                o, it = row['_order_obj'], row['_item_obj']
+                                generate_gift_note(c, o['order_id'], o['buyer_name'], it['gift_message'])
+                                c.showPage()
+                            c.save(); out.seek(0)
+                            st.session_state['gift_notes_pdf'] = out.getvalue()
+                            st.download_button("📥 Download ALL Gift Notes PDF", out.getvalue(),
+                                            "gift_notes_all.pdf","application/pdf")
 
         # ─────────────────────────────────────────────────────────────────────
         # TAB 5: SMART MERGE (QC)

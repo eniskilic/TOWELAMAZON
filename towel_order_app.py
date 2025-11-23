@@ -7,10 +7,10 @@ from reportlab.lib.pagesizes import landscape, inch
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.lib.utils import simpleSplit
-from pypdf import PdfReader, PdfWriter  # Updated to pypdf to match Blanket code
+from pypdf import PdfReader, PdfWriter 
 from difflib import get_close_matches
 
-# Optional imports for OCR (wrapped in try/except in logic to prevent crashes)
+# Optional imports for OCR (wrapped in try/except to prevent crashes if not installed)
 try:
     from pdf2image import convert_from_bytes
     import pytesseract
@@ -44,7 +44,7 @@ COLOR_TRANSLATIONS = {
 def get_spanish_color(c): return COLOR_TRANSLATIONS.get((c or "").upper().strip(), c or "")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PDF parser (Extracts Order Data from Packing Slips)
+# PDF parser (Extracts Order Data from Amazon Packing Slips)
 # ─────────────────────────────────────────────────────────────────────────────
 def parse_towel_orders(pdf_file):
     orders = []
@@ -345,38 +345,37 @@ def generate_manufacturing_label(c, data):
         c.drawString(x, usable_bottom, f"[+{remaining} more…]")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ROBUST NAME MATCHING MERGE (From Blanket Code Logic)
+# ROBUST NAME MATCHING MERGE (V2 - Fixed for Susan/Katherine)
 # ─────────────────────────────────────────────────────────────────────────────
 def robust_merge_by_buyer_name(shipping_pdf_bytes, manufacturing_pdf_bytes, order_dataframe):
-    """
-    Uses Buyer Name to link Shipping Labels to Manufacturing Labels.
-    Matches Blanket Order Logic: Index Mfg -> Scan Ship -> Match Name -> Merge
-    """
     try:
         # 1. Index Manufacturing Labels by Buyer Name
-        # ---------------------------------------------------------
         mfg_reader = PdfReader(manufacturing_pdf_bytes)
         mfg_map = {} 
         current_mfg_page_idx = 0
         
-        # We assume the dataframe and mfg_pdf are in sync (1 row = 1 page)
-        # We iterate through the dataframe to assign each page to a buyer name
+        # Create a map of simplified names to full names for easier matching
+        # Key = Simplified/Cleaned Name, Value = Original Buyer Name
+        search_index = {} 
+
         for _, row in order_dataframe.iterrows():
-            raw_name = str(row['Buyer']).strip().upper()
-            raw_name = " ".join(raw_name.split()) # Normalize whitespace
+            full_name = str(row['Buyer']).strip().upper()
+            clean_name = " ".join(full_name.split()) # Remove extra whitespace
             
-            if raw_name not in mfg_map:
-                mfg_map[raw_name] = []
+            if full_name not in mfg_map:
+                mfg_map[full_name] = []
+                # Index the first 15 chars for partial matching (helps with truncated labels)
+                search_index[clean_name] = full_name
+                if len(clean_name) > 15:
+                    search_index[clean_name[:15]] = full_name
             
             if current_mfg_page_idx < len(mfg_reader.pages):
-                mfg_map[raw_name].append(mfg_reader.pages[current_mfg_page_idx])
+                mfg_map[full_name].append(mfg_reader.pages[current_mfg_page_idx])
                 current_mfg_page_idx += 1
 
-        known_buyers = list(mfg_map.keys())
-        qc_tracker = {name: "❌ MISSING" for name in known_buyers}
+        qc_tracker = {name: "❌ MISSING" for name in mfg_map.keys()}
 
-        # 2. Process Shipping Labels (Scan for "Ship To: Name")
-        # ---------------------------------------------------------
+        # 2. Process Shipping Labels
         output_pdf = PdfWriter()
         shipping_pdf_bytes.seek(0)
         
@@ -387,63 +386,66 @@ def robust_merge_by_buyer_name(shipping_pdf_bytes, manufacturing_pdf_bytes, orde
             ship_reader = PdfReader(shipping_pdf_bytes)
             
             for i, page in enumerate(plist.pages):
-                # Extract Text
                 text = page.extract_text() or ""
-                text = text.upper()
+                # FLATTEN TEXT: Replace newlines with spaces to fix "SHIP TO: \n NAME" matching
+                text = text.upper().replace('\n', ' ') 
                 
                 found_name = None
                 
-                # Strategy A: Look for "SHIP TO" pattern
-                ship_to_match = re.search(r"SHIP\s*TO:?\s*\n+([^\n]+)", text)
-                if ship_to_match:
-                    candidate = ship_to_match.group(1).strip()
-                    # Use fuzzy matching to handle "John Doe" vs "John Doe "
-                    matches = get_close_matches(candidate, known_buyers, n=1, cutoff=0.8)
-                    if matches: found_name = matches[0]
-
-                # Strategy B: Scan full text if regex failed
-                if not found_name:
-                    for buyer in known_buyers:
-                        if buyer in text:
-                            found_name = buyer
-                            break
+                # --- MATCHING STRATEGY 1: Direct Search (Best for "Susan") ---
+                # We iterate through our list of buyers and see if their name appears in the text
+                for search_key, original_name in search_index.items():
+                    if search_key in text:
+                        found_name = original_name
+                        break
                 
-                # Strategy C: OCR Fallback (Only if text is empty/image-based)
-                if not found_name and len(text) < 50 and OCR_AVAILABLE: 
+                # --- MATCHING STRATEGY 2: Regex Extraction (Fallback) ---
+                if not found_name:
+                    # UPDATED REGEX: Allows spaces OR newlines after "SHIP TO:"
+                    # Look for "SHIP TO:" followed by anything that isn't a number/barcode
+                    ship_match = re.search(r"SHIP\s*TO:?\s*([A-Z\s]+?)(?:\d|ST|AVE|RD|DR|LN)", text)
+                    if ship_match:
+                        extracted = ship_match.group(1).strip()
+                        # Fuzzy match the extracted text against known buyers
+                        matches = get_close_matches(extracted, mfg_map.keys(), n=1, cutoff=0.6)
+                        if matches: found_name = matches[0]
+
+                # --- MATCHING STRATEGY 3: OCR (Only if needed and available) ---
+                if not found_name and len(text) < 50 and OCR_AVAILABLE:
                     try:
                         images = convert_from_bytes(shipping_pdf_bytes.getvalue(), first_page=i+1, last_page=i+1, dpi=150)
                         if images:
                             ocr_text = pytesseract.image_to_string(images[0]).upper()
-                            for buyer in known_buyers:
-                                if buyer in ocr_text:
-                                    found_name = buyer
+                            for search_key, original_name in search_index.items():
+                                if search_key in ocr_text:
+                                    found_name = original_name
                                     break
                     except: pass
 
-                # Construct PDF
-                # 1. Add Shipping Label
+                # --- CONSTRUCT PDF ---
                 if i < len(ship_reader.pages):
                     output_pdf.add_page(ship_reader.pages[i])
                     processed_count += 1
                 
-                # 2. Add Matched Manufacturing Label(s) immediately after
                 if found_name and found_name in mfg_map:
-                    pages_to_add = mfg_map[found_name]
-                    for p in pages_to_add:
+                    # Add all manufacturing labels for this buyer
+                    for p in mfg_map[found_name]:
                         output_pdf.add_page(p)
                         matched_count += 1
+                    
                     qc_tracker[found_name] = f"✅ MATCHED (Pg {i+1})"
-                    # Remove from map so we don't add duplicates, but keep in known_buyers for ref
+                    
+                    # Remove from map so we don't use it again (prevents duplicates)
                     del mfg_map[found_name]
+                    # Also clean up the search index to prevent false positives later
+                    keys_to_remove = [k for k, v in search_index.items() if v == found_name]
+                    for k in keys_to_remove: del search_index[k]
 
-        # 3. Handle Orphans (Manufacturing labels that weren't matched)
-        # ---------------------------------------------------------
-        orphans_added = 0
+        # 3. Handle Orphans (Append un-matched labels at the end)
         if len(mfg_map) > 0:
             for buyer, pages in mfg_map.items():
                 for p in pages:
                     output_pdf.add_page(p)
-                    orphans_added += 1
                 qc_tracker[buyer] = "⚠️ ORPHAN (Appended at end)"
 
         output_buffer = BytesIO()
@@ -452,8 +454,7 @@ def robust_merge_by_buyer_name(shipping_pdf_bytes, manufacturing_pdf_bytes, orde
         
         # Generate QC Dataframe
         qc_data = [{"Buyer Name": name, "Status": status} for name, status in qc_tracker.items()]
-        qc_df = pd.DataFrame(qc_data)
-        qc_df = qc_df.sort_values(by="Status", ascending=True) # Matches at top
+        qc_df = pd.DataFrame(qc_data).sort_values(by="Status", ascending=True)
         
         return output_buffer, processed_count, matched_count, qc_df
 
@@ -614,14 +615,14 @@ if uploaded_files:
                     with st.spinner("Generating..."):
                         out = BytesIO(); c = canvas.Canvas(out, pagesize=landscape((4*inch,6*inch)))
                         for idx, row in gifts.iterrows():
-                            o, it = row['_order_obj'], r['_item_obj']
+                            o, it = row['_order_obj'], row['_item_obj']
                             generate_gift_note(c, o['order_id'], o['buyer_name'], it['gift_message'])
                             c.showPage()
                         c.save(); out.seek(0)
                         st.download_button("📥 Download Gift Notes", out.getvalue(), "gift_notes.pdf", "application/pdf")
 
         # ─────────────────────────────────────────────────────────────────────
-        # TAB 5: SMART MERGE (QC) - REPLACED WITH BLANKET LOGIC
+        # TAB 5: SMART MERGE (QC)
         # ─────────────────────────────────────────────────────────────────────
         with tab5:
             st.subheader("🔗 Smart Merge with Name Matching (Robust)")

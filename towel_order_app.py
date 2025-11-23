@@ -10,7 +10,7 @@ from reportlab.lib.utils import simpleSplit
 from pypdf import PdfReader, PdfWriter 
 from difflib import get_close_matches
 
-# Optional imports for OCR
+# Optional imports for OCR (wrapped in try/except)
 try:
     from pdf2image import convert_from_bytes
     import pytesseract
@@ -301,7 +301,7 @@ def generate_manufacturing_label(c, data):
         c.setFont("Helvetica-Oblique", 8); c.drawString(x, usable_bottom, f"[+{len(items) - idx} more…]")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ROBUST NAME MATCHING MERGE (BLANKET ORDER STRATEGY)
+# ROBUST NAME MATCHING MERGE (AGGRESSIVE OCR FOR BOLD FONTS)
 # ─────────────────────────────────────────────────────────────────────────────
 def robust_merge_by_buyer_name(shipping_pdf_bytes, manufacturing_pdf_bytes, order_dataframe):
     try:
@@ -311,19 +311,15 @@ def robust_merge_by_buyer_name(shipping_pdf_bytes, manufacturing_pdf_bytes, orde
         current_mfg_page_idx = 0
         
         # Search Index: Key = Searchable String, Value = Original Buyer Name
-        # This solves the "Truncated Name" issue (Katherine)
         search_index = {} 
 
         for _, row in order_dataframe.iterrows():
             full_name = str(row['Buyer']).strip().upper()
-            # Remove extra spaces to create a "clean" key
             clean_name = " ".join(full_name.split()) 
             
             if full_name not in mfg_map:
                 mfg_map[full_name] = []
-                # STRATEGY B (from Blanket Code): Search for the Buyer's name in the PDF text
                 search_index[clean_name] = full_name
-                # Add truncated version (First 18 chars) for long names (Katherine)
                 if len(clean_name) > 18:
                     search_index[clean_name[:18]] = full_name
             
@@ -343,26 +339,22 @@ def robust_merge_by_buyer_name(shipping_pdf_bytes, manufacturing_pdf_bytes, orde
             ship_reader = PdfReader(shipping_pdf_bytes)
             
             for i, page in enumerate(plist.pages):
-                # Flatten text (remove newlines) to handle "Susan" case where name might be on next line
+                # Flatten text (remove newlines)
                 text = page.extract_text() or ""
                 text = text.upper().replace('\n', ' ').replace('  ', ' ')
                 
                 found_name = None
-                
-                # --- BLANKET CODE STRATEGY ---
-                # Instead of Regexing "SHIP TO:", we just iterate our known buyers 
-                # and check if they exist in the text.
-                
-                # Sort keys by length (longest first) to prevent partial matches of shorter names
                 sorted_keys = sorted(search_index.keys(), key=len, reverse=True)
                 
+                # Strategy 1: Standard Text Search
                 for search_key in sorted_keys:
                     if search_key in text:
                         found_name = search_index[search_key]
                         break
                 
-                # OCR Fallback (if installed)
-                if not found_name and len(text) < 20 and OCR_AVAILABLE:
+                # Strategy 2: Aggressive OCR (For Bold Fonts / Embedded Images)
+                # CRITICAL FIX: Run OCR if name not found, regardless of whether other text exists
+                if not found_name and OCR_AVAILABLE:
                     try:
                         images = convert_from_bytes(shipping_pdf_bytes.getvalue(), first_page=i+1, last_page=i+1, dpi=150)
                         if images:
@@ -385,7 +377,7 @@ def robust_merge_by_buyer_name(shipping_pdf_bytes, manufacturing_pdf_bytes, orde
                     
                     qc_tracker[found_name] = f"✅ MATCHED (Pg {i+1})"
                     del mfg_map[found_name]
-                    # Remove matched name from search index to speed up next iteration
+                    # Remove matched name from search index
                     keys_to_remove = [k for k,v in search_index.items() if v == found_name]
                     for k in keys_to_remove: del search_index[k]
 

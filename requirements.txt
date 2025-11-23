@@ -1,7 +1,7 @@
-streamlit>=1.36
-pdfplumber>=0.11
-PyPDF2>=3.0.1
-reportlab>=3.6.13
-pandas>=2.2
-XlsxWriter>=3.2
-pillow>=10.0
+streamlit
+pdfplumber
+pandas
+reportlab
+pypdf
+pdf2image
+pytesseract

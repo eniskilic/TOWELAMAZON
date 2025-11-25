@@ -13,7 +13,7 @@ from difflib import SequenceMatcher
 # ─────────────────────────────────────────────────────────────────────────────
 # App config & session
 # ─────────────────────────────────────────────────────────────────────────────
-st.set_page_config(page_title="Towel Order Parser (Zonal)", layout="wide", page_icon="🧺")
+st.set_page_config(page_title="Towel Order Parser", layout="wide", page_icon="🧺")
 
 for key in ["mfg_labels_pdf", "gift_notes_pdf", "merged_pdf", "qc_rows", "qc_complete"]:
     if key not in st.session_state:
@@ -302,347 +302,122 @@ def generate_manufacturing_label(c, data):
         c.setFont("Helvetica-Oblique", 8); c.drawString(x, usable_bottom, f"[+{len(items) - idx} more…]")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ZONAL EXTRACTION WITH CARRIER-SPECIFIC ANCHORS
+# MERGE LOGIC: SEQUENTIAL (SIMPLE)
 # ─────────────────────────────────────────────────────────────────────────────
-def extract_name_from_label(page):
+def merge_labels_sequential(ship_pdf_bytes, mfg_pdf_bytes, order_df):
     """
-    Extract recipient name from shipping label using carrier-specific zonal anchors.
-    
-    Args:
-        page: pdfplumber page object
-        
-    Returns:
-        tuple: (extracted_name: str, carrier: str, confidence: str, warnings: list)
-    """
-    text = page.extract_text()
-    if not text:
-        return None, "Unknown", "No text found", []
-    
-    width = page.width
-    height = page.height
-    text_upper = text.upper()
-    warnings = []
-    
-    # ═══════════════════════════════════════════════════════════
-    # CARRIER DETECTION & WARNING FOR MULTIPLE CARRIERS
-    # ═══════════════════════════════════════════════════════════
-    detected_carriers = []
-    if any(keyword in text_upper for keyword in ["AMAZON SHIPPING", "TBA", "DMF", "CYCLE"]):
-        detected_carriers.append("Amazon")
-    if "UPS" in text_upper and "SHIP TO:" in text_upper:
-        detected_carriers.append("UPS")
-    if "FEDEX" in text_upper or "FedEx" in text:
-        detected_carriers.append("FedEx")
-    if "USPS" in text_upper:
-        detected_carriers.append("USPS")
-    
-    if len(detected_carriers) > 1:
-        warnings.append(f"⚠️ MULTIPLE CARRIERS DETECTED: {', '.join(detected_carriers)}")
-    
-    if not detected_carriers:
-        return None, "Unknown", "No carrier detected", warnings
-    
-    # Use first detected carrier for extraction
-    carrier = detected_carriers[0]
-    
-    # ═══════════════════════════════════════════════════════════
-    # 1. AMAZON SHIPPING
-    # ═══════════════════════════════════════════════════════════
-    if carrier == "Amazon":
-        # Fixed crop box: top-left corner (0-3" wide, 0.5-1.5" down)
-        # Assuming 72 DPI: 1 inch = 72 points
-        crop_box = (10, 36, 216, 150)  # Adjusted based on sample image
-        try:
-            cropped = page.crop(crop_box)
-            name_text = cropped.extract_text()
-            
-            if name_text:
-                # Clean and get first non-empty line
-                lines = [l.strip() for l in name_text.split('\n') if l.strip()]
-                # Skip lines with "UNDELIVERABLE", weight info, or dates
-                for line in lines:
-                    if line and "UNDELIVERABLE" not in line.upper() and "LBS" not in line.upper() and not re.search(r'\d{2}/\d{2}', line):
-                        return line, carrier, "Fixed Zone", warnings
-        except Exception as e:
-            warnings.append(f"Amazon extraction error: {str(e)}")
-        
-        return None, carrier, "No valid name in zone", warnings
-    
-    # ═══════════════════════════════════════════════════════════
-    # 2. UPS
-    # ═══════════════════════════════════════════════════════════
-    if carrier == "UPS":
-        # Find "SHIP TO:" anchor coordinates
-        words = page.extract_words()
-        anchor = None
-        
-        for i, word in enumerate(words):
-            if "SHIP" in word['text'].upper():
-                # Check if next word is "TO:"
-                if i + 1 < len(words) and "TO" in words[i + 1]['text'].upper():
-                    anchor = words[i + 1]
-                    break
-        
-        if anchor:
-            # Define crop box BELOW the anchor
-            y_start = anchor['bottom'] + 5
-            y_end = min(anchor['bottom'] + 144, height)  # 144pts = 2 inches
-            x_start = max(anchor['x0'] - 20, 0)  # Slight left margin
-            x_end = min(anchor['x0'] + 350, width)  # 350pts ≈ 4.8 inches wide
-            
-            try:
-                crop_box = (x_start, y_start, x_end, y_end)
-                cropped = page.crop(crop_box)
-                name_text = cropped.extract_text()
-                
-                if name_text:
-                    lines = [l.strip() for l in name_text.split('\n') if l.strip()]
-                    # First line after "SHIP TO:" is typically the name
-                    if lines:
-                        return lines[0], carrier, "Anchor Zone", warnings
-            except Exception as e:
-                warnings.append(f"UPS extraction error: {str(e)}")
-        
-        return None, carrier, "Anchor not found", warnings
-    
-    # ═══════════════════════════════════════════════════════════
-    # 3. FEDEX
-    # ═══════════════════════════════════════════════════════════
-    if carrier == "FedEx":
-        # Find "TO" anchor (appears alone or with colon)
-        words = page.extract_words()
-        anchor = None
-        
-        # Look for standalone "TO" or "TO:"
-        for word in words:
-            word_text = word['text'].strip().upper()
-            if word_text in ["TO", "TO:"]:
-                # Verify it's in the right position (not part of "DELIVER TO:")
-                anchor = word
-                break
-        
-        if anchor:
-            # Define crop box BELOW the anchor
-            y_start = anchor['bottom'] + 5
-            y_end = min(anchor['bottom'] + 144, height)
-            x_start = max(anchor['x0'] - 20, 0)
-            x_end = min(anchor['x0'] + 400, width)
-            
-            try:
-                crop_box = (x_start, y_start, x_end, y_end)
-                cropped = page.crop(crop_box)
-                name_text = cropped.extract_text()
-                
-                if name_text:
-                    lines = [l.strip() for l in name_text.split('\n') if l.strip()]
-                    if lines:
-                        return lines[0], carrier, "Anchor Zone", warnings
-            except Exception as e:
-                warnings.append(f"FedEx extraction error: {str(e)}")
-        
-        return None, carrier, "Anchor not found", warnings
-    
-    # ═══════════════════════════════════════════════════════════
-    # 4. USPS
-    # ═══════════════════════════════════════════════════════════
-    if carrier == "USPS":
-        # Find "SHIP" anchor (followed by "TO:")
-        words = page.extract_words()
-        anchor = None
-        
-        for i, word in enumerate(words):
-            if word['text'].strip().upper() == "SHIP":
-                # Verify next word is "TO:" (for USPS format)
-                if i + 1 < len(words) and "TO" in words[i + 1]['text'].upper():
-                    anchor = word
-                    break
-        
-        if anchor:
-            # Name is to the RIGHT of "SHIP TO:"
-            # Define crop box to the right
-            x_start = anchor['x1'] + 10  # Start right after "SHIP"
-            x_end = min(x_start + 350, width)
-            y_start = max(anchor['top'] - 10, 0)  # Slight upward margin
-            y_end = min(anchor['bottom'] + 150, height)
-            
-            try:
-                crop_box = (x_start, y_start, x_end, y_end)
-                cropped = page.crop(crop_box)
-                name_text = cropped.extract_text()
-                
-                if name_text:
-                    lines = [l.strip() for l in name_text.split('\n') if l.strip()]
-                    # Filter out "TO:" if it appears
-                    lines = [l for l in lines if l.upper() != "TO:" and l.upper() != "TO"]
-                    if lines:
-                        return lines[0], carrier, "Right Zone", warnings
-            except Exception as e:
-                warnings.append(f"USPS extraction error: {str(e)}")
-        
-        return None, carrier, "Anchor not found", warnings
-    
-    # Fallback
-    return None, "Unknown", "Extraction failed", warnings
-
-
-def clean_name_for_matching(name):
-    """Remove special characters and normalize for fuzzy matching."""
-    if not name:
-        return ""
-    # Remove newlines, extra spaces, punctuation
-    cleaned = re.sub(r'[^\w\s]', '', name)
-    cleaned = re.sub(r'\s+', ' ', cleaned)
-    return cleaned.strip().lower()
-
-
-def fuzzy_match_name(extracted_name, order_df, threshold=0.75):
-    """
-    Match extracted name against order dataframe using fuzzy matching.
-    
-    Returns:
-        tuple: (matched_order_id, buyer_name, match_score)
-    """
-    if not extracted_name:
-        return None, None, 0
-    
-    cleaned_extracted = clean_name_for_matching(extracted_name)
-    best_match = None
-    best_score = 0
-    
-    for _, row in order_df.iterrows():
-        buyer_name = row['Buyer']
-        cleaned_buyer = clean_name_for_matching(buyer_name)
-        
-        # Check for exact substring match first (highest priority)
-        if cleaned_extracted in cleaned_buyer or cleaned_buyer in cleaned_extracted:
-            return row['Order ID'], buyer_name, 1.0
-        
-        # Otherwise use SequenceMatcher for fuzzy matching
-        score = SequenceMatcher(None, cleaned_extracted, cleaned_buyer).ratio()
-        
-        if score > best_score:
-            best_score = score
-            best_match = row
-    
-    if best_score >= threshold and best_match is not None:
-        return best_match['Order ID'], best_match['Buyer'], best_score
-    
-    return None, None, best_score
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# MERGE LOGIC: ZONAL EXTRACTION
-# ─────────────────────────────────────────────────────────────────────────────
-def merge_labels_zonal(ship_pdf_bytes, mfg_pdf_bytes, order_df, threshold=0.75):
-    """
-    Merge shipping labels with manufacturing labels using zonal extraction.
+    Merge shipping labels with manufacturing labels in sequential order.
+    Assumes both PDFs are in the correct order.
     
     Args:
         ship_pdf_bytes: BytesIO of shipping labels PDF
         mfg_pdf_bytes: BytesIO of manufacturing labels PDF
-        order_df: DataFrame with order information
-        threshold: Fuzzy matching threshold (default 0.75)
+        order_df: DataFrame with order information (for multi-item tracking)
         
     Returns:
         tuple: (merged_pdf_bytes, qc_dataframe)
     """
-    # Build mapping: Order ID -> List of manufacturing label pages
+    ship_reader = PdfReader(ship_pdf_bytes)
     mfg_reader = PdfReader(mfg_pdf_bytes)
-    mfg_map = {} 
-    curr_page = 0
-    
-    for _, row in order_df.iterrows():
-        oid = row['Order ID']
-        if oid not in mfg_map:
-            mfg_map[oid] = []
-        if curr_page < len(mfg_reader.pages):
-            mfg_map[oid].append(mfg_reader.pages[curr_page])
-            curr_page += 1
     
     output = PdfWriter()
     qc_data = []
-    all_warnings = []
     
-    with pdfplumber.open(ship_pdf_bytes) as plumber_pdf:
-        ship_reader = PdfReader(ship_pdf_bytes)
+    # Build order tracking: how many items per order (in sequence)
+    order_sequence = []
+    for _, row in order_df.iterrows():
+        order_sequence.append({
+            'order_id': row['Order ID'],
+            'buyer': row['Buyer'],
+            'item_number': row['item_number'],
+            'item_count': row['item_count']
+        })
+    
+    mfg_index = 0
+    ship_page_count = len(ship_reader.pages)
+    mfg_page_count = len(mfg_reader.pages)
+    
+    # Process shipping labels sequentially
+    for ship_idx in range(ship_page_count):
+        # Add shipping label
+        output.add_page(ship_reader.pages[ship_idx])
         
-        for i, p_page in enumerate(plumber_pdf.pages):
-            # Extract name using zonal method
-            extracted_name, carrier, method, warnings = extract_name_from_label(p_page)
+        # Determine how many manufacturing labels to insert
+        if mfg_index < len(order_sequence):
+            order_info = order_sequence[mfg_index]
+            item_count = order_info['item_count']
+            order_id = order_info['order_id']
+            buyer = order_info['buyer']
             
-            if warnings:
-                all_warnings.extend([f"Page {i+1}: {w}" for w in warnings])
-            
-            matched_oid = None
-            matched_buyer = None
-            match_status = "❌ NO MATCH"
-            match_score = 0
-            
-            if extracted_name:
-                matched_oid, matched_buyer, match_score = fuzzy_match_name(
-                    extracted_name, order_df, threshold
-                )
-                
-                if matched_oid:
-                    match_status = f"✅ MATCH ({int(match_score*100)}%)"
-                else:
-                    match_status = f"❌ NO MATCH (Best: {int(match_score*100)}%)"
-            
-            # Add shipping label page
-            if i < len(ship_reader.pages):
-                output.add_page(ship_reader.pages[i])
-            
-            # Add manufacturing label(s) if matched
-            if matched_oid and matched_oid in mfg_map:
-                for mfg_page in mfg_map[matched_oid]:
-                    output.add_page(mfg_page)
-                # Remove from map so we can track orphans
-                del mfg_map[matched_oid]
-            
-            # Log QC data
+            # Add all manufacturing labels for this order
+            mfg_added = 0
+            for _ in range(item_count):
+                if mfg_index < mfg_page_count:
+                    output.add_page(mfg_reader.pages[mfg_index])
+                    
+                    qc_data.append({
+                        "Shipping Page": ship_idx + 1,
+                        "Mfg Label": mfg_index + 1,
+                        "Order ID": order_id,
+                        "Buyer": buyer,
+                        "Item": f"{mfg_added + 1} of {item_count}",
+                        "Status": "✅ PAIRED"
+                    })
+                    
+                    mfg_index += 1
+                    mfg_added += 1
+        else:
+            # No more orders in sequence
             qc_data.append({
-                "Page": i + 1,
-                "Carrier": carrier,
-                "Extracted Name": extracted_name if extracted_name else "—",
-                "Method": method,
-                "Matched Order": matched_oid if matched_oid else "—",
-                "Matched Buyer": matched_buyer if matched_buyer else "—",
-                "Score": f"{int(match_score*100)}%",
-                "Status": match_status
+                "Shipping Page": ship_idx + 1,
+                "Mfg Label": "—",
+                "Order ID": "—",
+                "Buyer": "—",
+                "Item": "—",
+                "Status": "⚠️ NO MFG LABEL"
             })
     
     # Handle orphaned manufacturing labels (append at end)
     orphan_count = 0
-    for oid, pages in mfg_map.items():
-        buyer = order_df[order_df['Order ID'] == oid]['Buyer'].iloc[0] if not order_df[order_df['Order ID'] == oid].empty else "Unknown"
+    while mfg_index < mfg_page_count:
+        output.add_page(mfg_reader.pages[mfg_index])
         
-        qc_data.append({
-            "Page": "ORPHAN",
-            "Carrier": "—",
-            "Extracted Name": "—",
-            "Method": "—",
-            "Matched Order": oid,
-            "Matched Buyer": buyer,
-            "Score": "—",
-            "Status": "⚠️ NO SHIPPING LABEL"
-        })
+        # Try to get order info if available
+        if mfg_index < len(order_sequence):
+            order_info = order_sequence[mfg_index]
+            qc_data.append({
+                "Shipping Page": "ORPHAN",
+                "Mfg Label": mfg_index + 1,
+                "Order ID": order_info['order_id'],
+                "Buyer": order_info['buyer'],
+                "Item": f"{order_info['item_number']} of {order_info['item_count']}",
+                "Status": "⚠️ NO SHIPPING LABEL"
+            })
+        else:
+            qc_data.append({
+                "Shipping Page": "ORPHAN",
+                "Mfg Label": mfg_index + 1,
+                "Order ID": "Unknown",
+                "Buyer": "Unknown",
+                "Item": "—",
+                "Status": "⚠️ NO SHIPPING LABEL"
+            })
         
-        for mfg_page in pages:
-            output.add_page(mfg_page)
-            orphan_count += 1
+        mfg_index += 1
+        orphan_count += 1
     
     # Write final PDF
     out_buf = BytesIO()
     output.write(out_buf)
     out_buf.seek(0)
     
-    return out_buf, pd.DataFrame(qc_data), all_warnings, orphan_count
+    return out_buf, pd.DataFrame(qc_data), orphan_count
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Streamlit UI (Multi-Tab with Zonal Extraction)
 # ─────────────────────────────────────────────────────────────────────────────
-st.title("🧺 Towel Order Parser & Label Generator (Zonal Extraction)")
+st.title("🧺 Towel Order Parser & Label Generator")
 st.markdown("**Upload Amazon packing slip PDFs to generate manufacturing labels**")
 
 uploaded_files = st.file_uploader("Upload PDF files (Order Details)", type=['pdf'], accept_multiple_files=True)
@@ -677,7 +452,7 @@ if uploaded_files:
 
         st.success(f"✅ Parsed {len(all_orders)} orders with {len(df)} items")
 
-        tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Table View","📋 Manufacturing Plan","🏷️ Manufacturing Labels","🎁 Gift Notes","🔗 Smart Merge (Zonal)"])
+        tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Table View","📋 Manufacturing Plan","🏷️ Manufacturing Labels","🎁 Gift Notes","🔗 Sequential Merge"])
 
         with tab1:
             display_df = df.drop(columns=['_order_obj','_item_obj'])
@@ -763,39 +538,34 @@ if uploaded_files:
                     st.download_button("📥 Download Gift Notes", out.getvalue(), "gift_notes.pdf", "application/pdf")
 
         with tab5:
-            st.subheader("🔗 Smart Merge (Zonal Extraction)")
-            st.info("🎯 **NEW:** Carrier-specific zonal extraction with anchor detection. Supports UPS, FedEx, USPS, and Amazon.")
+            st.subheader("🔗 Sequential Merge")
+            st.info("📄 **Sequential pairing:** Assumes shipping labels and manufacturing labels are in the same order. Multi-item orders are handled automatically.")
             
             with st.expander("📖 How It Works", expanded=False):
                 st.markdown("""
-                **Carrier Detection:**
-                - **Amazon**: Fixed zone in top-left corner (no "TO" anchor exists)
-                - **UPS**: Searches for "SHIP TO:" anchor, extracts name below
-                - **FedEx**: Searches for "TO" anchor, extracts name below
-                - **USPS**: Searches for "SHIP" anchor, extracts name to the RIGHT
+                **Sequential Pairing:**
+                - Shipping label page 1 → Manufacturing label(s) for first order
+                - Shipping label page 2 → Manufacturing label(s) for second order
+                - And so on...
                 
-                **Matching:**
-                - Fuzzy matching with 75% threshold
-                - Exact substring matches prioritized
-                - Multi-item orders: ALL manufacturing labels inserted after shipping label
-                - Orphans: Appended at end of merged PDF
+                **Multi-item Orders:**
+                - If an order has 3 items, all 3 manufacturing labels are inserted after the shipping label
+                
+                **Orphan Handling:**
+                - Any leftover manufacturing labels are appended at the end of the merged PDF
                 """)
             
-            ship_pdf = st.file_uploader("1️⃣ Upload Shipping Labels PDF", type=["pdf"], key="ship_pdf_zonal")
-            
-            threshold = st.slider("Matching Threshold (%)", min_value=50, max_value=100, value=75, step=5)
-            threshold_decimal = threshold / 100
+            ship_pdf = st.file_uploader("1️⃣ Upload Shipping Labels PDF", type=["pdf"], key="ship_pdf_seq")
             
             if ship_pdf:
                 if st.session_state['mfg_labels_pdf'] is None: 
                     st.warning("⚠️ Please go to Tab 1 and click 'Generate ALL Manufacturing Labels' first.")
-                elif st.button("2️⃣ Analyze, Match & Merge", type="primary"):
-                    with st.spinner("Merging via Zonal Extraction..."):
-                        merged_buffer, qc_df, warnings, orphan_count = merge_labels_zonal(
+                elif st.button("2️⃣ Merge Labels", type="primary"):
+                    with st.spinner("Merging labels sequentially..."):
+                        merged_buffer, qc_df, orphan_count = merge_labels_sequential(
                             ship_pdf, 
                             BytesIO(st.session_state['mfg_labels_pdf']), 
-                            df,
-                            threshold_decimal
+                            df
                         )
                         
                         if merged_buffer:
@@ -803,20 +573,12 @@ if uploaded_files:
                             st.session_state.qc_rows = qc_df
                             st.session_state.qc_complete = True
                             
-                            # Show warnings if any
-                            if warnings:
-                                with st.expander(f"⚠️ {len(warnings)} Warning(s) Detected", expanded=True):
-                                    for warning in warnings:
-                                        st.warning(warning)
-                            
                             # Show summary
-                            matched_count = len(qc_df[qc_df['Status'].str.contains('MATCH')])
-                            no_match_count = len(qc_df[qc_df['Status'].str.contains('NO MATCH')]) - orphan_count
+                            paired_count = len(qc_df[qc_df['Status'].str.contains('PAIRED')])
                             
-                            col1, col2, col3 = st.columns(3)
-                            col1.metric("✅ Matched", matched_count)
-                            col2.metric("❌ Not Matched", no_match_count)
-                            col3.metric("⚠️ Orphans", orphan_count)
+                            col1, col2 = st.columns(2)
+                            col1.metric("✅ Paired", paired_count)
+                            col2.metric("⚠️ Orphans", orphan_count)
             
             if st.session_state.get('qc_complete'):
                 st.write("### 🧐 QC Results")

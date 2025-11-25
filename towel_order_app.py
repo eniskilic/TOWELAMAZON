@@ -7,13 +7,24 @@ from reportlab.lib.pagesizes import landscape, inch
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.lib.utils import simpleSplit
-from PyPDF2 import PdfReader, PdfWriter
+from pypdf import PdfReader, PdfWriter 
+from difflib import get_close_matches
+
+# Optional imports for OCR (wrapped in try/except to prevent crashes if not installed)
+try:
+    from pdf2image import convert_from_bytes
+    import pytesseract
+    OCR_AVAILABLE = True
+except ImportError:
+    OCR_AVAILABLE = False
 
 # ─────────────────────────────────────────────────────────────────────────────
 # App config & session
 # ─────────────────────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Towel Order Parser", layout="wide", page_icon="🧺")
-for key in ["mfg_labels_pdf", "gift_notes_pdf", "merged_pdf"]:
+
+# Initialize session state
+for key in ["mfg_labels_pdf", "gift_notes_pdf", "merged_pdf", "qc_rows", "qc_complete"]:
     if key not in st.session_state:
         st.session_state[key] = None
 
@@ -33,7 +44,7 @@ COLOR_TRANSLATIONS = {
 def get_spanish_color(c): return COLOR_TRANSLATIONS.get((c or "").upper().strip(), c or "")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PDF parser
+# PDF parser (Extracts Order Data from Amazon Packing Slips)
 # ─────────────────────────────────────────────────────────────────────────────
 def parse_towel_orders(pdf_file):
     orders = []
@@ -103,17 +114,17 @@ def parse_towel_orders(pdf_file):
                     product_type = '2-pc Hand Towel'
                     fields = [
                         ('Medium 1', r'First Hand Towel:\s*(.+?)(?:\n|Second)'),
-                        ('Medium 2', r'Second Hand Towel:\s*(.+?)(?:\n|Item|Grand|$)'),
+                        ('Medium 2', r'Second Hand Towel:\s*(.+?)(?:\n|Item|Grand|Gift|$)'),
                     ]
                 elif 'BT-2' in sku or 'BT-2Pcs' in sku:
                     product_type = '2-pc Bath Towel'
                     fields = [
                         ('Large 1', r'First Bath Towel:\s*(.+?)(?:\n|Second)'),
-                        ('Large 2', r'Second Bath Towel:\s*(.+?)(?:\n|Item|Grand|$)'),
+                        ('Large 2', r'Second Bath Towel:\s*(.+?)(?:\n|Item|Grand|Gift|$)'),
                     ]
                 elif 'BS-1' in sku or 'BS-1Pcs' in sku:
                     product_type = 'Bath Sheet (Oversized)'
-                    fields = [('Bath Sheet', r'Oversized Bath Sheet:\s*(.+?)(?:\n|Item|Grand|$)')]
+                    fields = [('Bath Sheet', r'Oversized Bath Sheet:\s*(.+?)(?:\n|Item|Grand|Gift|$)')]
 
                 if fields:
                     for lbl, pat in fields:
@@ -123,8 +134,14 @@ def parse_towel_orders(pdf_file):
                 # Gift message detection
                 gift = ''
                 has_gift_card = False
+                
                 m = re.search(r'Gift Message:\s*(.+?)(?:\n|Item|Grand|$)', content)
                 if m: 
+                    gift = m.group(1).strip()
+                    has_gift_card = True
+
+                m = re.search(r'Gift Card Note:\s*(.+?)(?:\n|Item|Grand|Please CHECK|$)', content)
+                if m:
                     gift = m.group(1).strip()
                     has_gift_card = True
                 
@@ -137,6 +154,9 @@ def parse_towel_orders(pdf_file):
                             gift_lines.append(m.group(1).strip())
                     if gift_lines:
                         gift = ' '.join(gift_lines)
+                
+                if "Gift Bag and Gift Note Please!" in content:
+                    has_gift_card = True
                 
                 if not has_gift_card:
                     m = re.search(r'Add Gift Card:\s*(.+?)(?:\n|Item|Grand|$)', content)
@@ -182,7 +202,7 @@ def fit_fonts(items, width_pts, height_pts, start_label, start_text, min_fs=8):
     return label_fs, text_fs, label_lead, text_lead
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Gift note label
+# Label Generation (Gift & Mfg)
 # ─────────────────────────────────────────────────────────────────────────────
 def generate_gift_note(c, order_id, buyer_name, gift_message):
     W, H = landscape((4 * inch, 6 * inch))
@@ -213,33 +233,24 @@ def generate_gift_note(c, order_id, buyer_name, gift_message):
     c.setFont("Helvetica", 7); c.setFillColor(colors.grey)
     c.drawRightString(W - margin - 0.15*inch, margin + 0.2*inch, f"Order: {order_id}")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Manufacturing label renderer
-# ─────────────────────────────────────────────────────────────────────────────
 def generate_manufacturing_label(c, data):
     W, H = landscape((4 * inch, 6 * inch))
     left, right = 0.25 * inch, (6 * inch) - 0.25 * inch
     y = (4 * inch) - 0.25 * inch
 
-    # --- UPDATE: GIFT NOTE BANNER (TOP) ---
     if data['has_gift_note']:
         banner_height = 0.35 * inch
         banner_y = y
-        y -= banner_height  # Move everything else down
-        
-        # Draw banner box
+        y -= banner_height 
         c.setFillColor(colors.HexColor('#D32F2F'))
         c.setStrokeColor(colors.HexColor('#B71C1C'))
         c.setLineWidth(3)
         c.rect(left, banner_y - banner_height, right - left, banner_height, stroke=1, fill=1)
-        
-        # Draw "GIFT NOTE" title
         c.setFillColor(colors.white)
         c.setFont("Helvetica-Bold", 20)
         text_y = banner_y - banner_height/2 - 0.07*inch
         c.drawCentredString((left + right) / 2, text_y, "🎁 GIFT NOTE 🎁")
 
-    # Header
     c.setFont("Helvetica-Bold", 13); c.setFillColor(colors.black)
     c.drawString(left, y, data['buyer'])
     
@@ -255,14 +266,12 @@ def generate_manufacturing_label(c, data):
     y -= 0.22*inch
     c.setLineWidth(2); c.line(left, y, right, y); y -= 0.15*inch
 
-    # Two columns
     total_w = right - left
     left_w  = total_w * 0.40
     right_w = total_w * 0.60
     left_right = left + left_w
     right_left = left_right + 0.08*inch
 
-    # Content box heights
     MAX_CONTENT_H_IN    = 3.05 if not data['has_gift_note'] else 2.70
     SIX_PC_CONTENT_IN   = 2.95 if not data['has_gift_note'] else 2.60
     THREE_PC_CONTENT_IN = 2.55 if not data['has_gift_note'] else 2.20
@@ -277,47 +286,31 @@ def generate_manufacturing_label(c, data):
     content_top = y
     content_bottom = y - content_h
 
-    # Box + divider
     c.setLineWidth(2);   c.rect(left, content_bottom, right-left, content_h, stroke=1, fill=0)
     c.setLineWidth(1.5); c.line(left_right + 0.04*inch, content_top, left_right + 0.04*inch, content_bottom)
 
-    # LEFT column (product specs)
     col_y = content_top - 0.12*inch
     col_c = left + left_w/2
     c.setFont("Helvetica", 8); c.drawCentredString(col_c, col_y, "PRODUCT:"); col_y -= 0.22*inch
     c.setFont("Helvetica-Bold", 13); c.drawCentredString(col_c, col_y, data['product_type'].upper()); col_y -= 0.26*inch
     c.setFont("Helvetica-Bold", 16); c.drawCentredString(col_c, col_y, data['towel_color'].upper()); col_y -= 0.30*inch
     
-    # FIRST DIVIDER (above QTY)
     c.setLineWidth(0.5); c.line(left + 0.05*inch, col_y, left_right - 0.05*inch, col_y); col_y -= 0.22*inch
     
-    # QTY
     c.setFont("Helvetica-BoldOblique" if int(data['quantity'])>2 else "Helvetica-Bold", 18)
     c.drawCentredString(col_c, col_y, f"QTY: {data['quantity']}"); col_y -= 0.22*inch
     
-    # SECOND DIVIDER (below QTY)
     c.setLineWidth(0.5); c.line(left + 0.05*inch, col_y, left_right - 0.05*inch, col_y); col_y -= 0.24*inch
     
-    # THREAD COLOR
     c.setFont("Helvetica", 8); c.drawCentredString(col_c, col_y, "THREAD COLOR:"); col_y -= 0.2*inch
     c.setFont("Helvetica-Bold", 15); c.drawCentredString(col_c, col_y, data['thread_color'].upper()); col_y -= 0.14*inch
     c.setFont("Helvetica", 12); c.drawCentredString(col_c, col_y, get_spanish_color(data['thread_color']))
-    col_y -= 0.24 * inch # Extra space
 
-    # --- UPDATE: FONT NAME ---
-    c.setFont("Helvetica", 8); c.drawCentredString(col_c, col_y, "FONT:"); col_y -= 0.16*inch
-    # Adjust font size if the font name is long
-    font_fs = 12 if len(data['font']) < 15 else 10
-    c.setFont("Helvetica-Bold", font_fs); c.drawCentredString(col_c, col_y, data['font'])
-
-
-    # RIGHT column header
     right_header_y = content_top - 0.12*inch
     c.setFont("Helvetica-Bold", 9)
     c.drawString(right_left + 0.05*inch, right_header_y, "PERSONALIZATION:")
 
-    # Usable area
-    pad_t, pad_b, pad_r, pad_l = 0.20*inch, 0.10*inch, 0.10*inch, 0.08*inch
+    pad_t, pad_b, pad_r, pad_l = 0.20*inch, 0.10*inch, 0.10*inch, 0.08*inch 
     usable_top    = right_header_y - pad_t
     usable_bottom = content_bottom + pad_b
     usable_height = max(1, usable_top - usable_bottom)
@@ -332,7 +325,6 @@ def generate_manufacturing_label(c, data):
         items, usable_width, usable_height, start_label, start_text, min_fs=8
     )
 
-    # Draw inside the capped box
     x = right_left + pad_l
     ytxt = usable_top
     overflow = False
@@ -343,8 +335,8 @@ def generate_manufacturing_label(c, data):
         for ln in lines:
             if ytxt - text_lead < usable_bottom: overflow=True; break
             c.setFont("Helvetica-BoldOblique", text_fs); c.drawString(x, ytxt, ln); ytxt -= text_lead
-        if idx < len(items) - 1:
-            ytxt -= text_lead * 0.15
+        if idx < len(items) - 1: 
+            ytxt -= text_lead * 0.15 
         if overflow: break
 
     if overflow:
@@ -353,48 +345,122 @@ def generate_manufacturing_label(c, data):
         c.drawString(x, usable_bottom, f"[+{remaining} more…]")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SIMPLE MERGE FUNCTION
+# ROBUST NAME MATCHING MERGE (V2 - Fixed for Susan/Katherine)
 # ─────────────────────────────────────────────────────────────────────────────
-def merge_shipping_and_manufacturing_labels_simple(shipping_pdf_bytes, manufacturing_pdf_bytes, order_dataframe):
+def robust_merge_by_buyer_name(shipping_pdf_bytes, manufacturing_pdf_bytes, order_dataframe):
     try:
-        shipping_pdf = PdfReader(shipping_pdf_bytes)
-        manufacturing_pdf = PdfReader(manufacturing_pdf_bytes)
+        # 1. Index Manufacturing Labels by Buyer Name
+        mfg_reader = PdfReader(manufacturing_pdf_bytes)
+        mfg_map = {} 
+        current_mfg_page_idx = 0
         
-        seen_orders = []
-        order_item_counts = []
-        
-        for order_id in order_dataframe['Order ID']:
-            if order_id not in seen_orders:
-                seen_orders.append(order_id)
-                item_count = len(order_dataframe[order_dataframe['Order ID'] == order_id])
-                order_item_counts.append(item_count)
-        
-        shipping_to_mfg = {}
-        mfg_index = 0
-        
-        for shipping_index, item_count in enumerate(order_item_counts):
-            shipping_to_mfg[shipping_index] = list(range(mfg_index, mfg_index + item_count))
-            mfg_index += item_count
-        
+        # Create a map of simplified names to full names for easier matching
+        # Key = Simplified/Cleaned Name, Value = Original Buyer Name
+        search_index = {} 
+
+        for _, row in order_dataframe.iterrows():
+            full_name = str(row['Buyer']).strip().upper()
+            clean_name = " ".join(full_name.split()) # Remove extra whitespace
+            
+            if full_name not in mfg_map:
+                mfg_map[full_name] = []
+                # Index the first 15 chars for partial matching (helps with truncated labels)
+                search_index[clean_name] = full_name
+                if len(clean_name) > 15:
+                    search_index[clean_name[:15]] = full_name
+            
+            if current_mfg_page_idx < len(mfg_reader.pages):
+                mfg_map[full_name].append(mfg_reader.pages[current_mfg_page_idx])
+                current_mfg_page_idx += 1
+
+        qc_tracker = {name: "❌ MISSING" for name in mfg_map.keys()}
+
+        # 2. Process Shipping Labels
         output_pdf = PdfWriter()
-        total_shipping_labels = len(seen_orders)
+        shipping_pdf_bytes.seek(0)
         
-        for ship_idx in range(total_shipping_labels):
-            if ship_idx >= len(shipping_pdf.pages): break
-            output_pdf.add_page(shipping_pdf.pages[ship_idx])
-            if ship_idx in shipping_to_mfg:
-                for mfg_idx in shipping_to_mfg[ship_idx]:
-                    if mfg_idx < len(manufacturing_pdf.pages):
-                        output_pdf.add_page(manufacturing_pdf.pages[mfg_idx])
+        processed_count = 0
+        matched_count = 0
         
+        with pdfplumber.open(shipping_pdf_bytes) as plist:
+            ship_reader = PdfReader(shipping_pdf_bytes)
+            
+            for i, page in enumerate(plist.pages):
+                text = page.extract_text() or ""
+                # FLATTEN TEXT: Replace newlines with spaces to fix "SHIP TO: \n NAME" matching
+                text = text.upper().replace('\n', ' ') 
+                
+                found_name = None
+                
+                # --- MATCHING STRATEGY 1: Direct Search (Best for "Susan") ---
+                # We iterate through our list of buyers and see if their name appears in the text
+                for search_key, original_name in search_index.items():
+                    if search_key in text:
+                        found_name = original_name
+                        break
+                
+                # --- MATCHING STRATEGY 2: Regex Extraction (Fallback) ---
+                if not found_name:
+                    # UPDATED REGEX: Allows spaces OR newlines after "SHIP TO:"
+                    # Look for "SHIP TO:" followed by anything that isn't a number/barcode
+                    ship_match = re.search(r"SHIP\s*TO:?\s*([A-Z\s]+?)(?:\d|ST|AVE|RD|DR|LN)", text)
+                    if ship_match:
+                        extracted = ship_match.group(1).strip()
+                        # Fuzzy match the extracted text against known buyers
+                        matches = get_close_matches(extracted, mfg_map.keys(), n=1, cutoff=0.6)
+                        if matches: found_name = matches[0]
+
+                # --- MATCHING STRATEGY 3: OCR (Only if needed and available) ---
+                if not found_name and len(text) < 50 and OCR_AVAILABLE:
+                    try:
+                        images = convert_from_bytes(shipping_pdf_bytes.getvalue(), first_page=i+1, last_page=i+1, dpi=150)
+                        if images:
+                            ocr_text = pytesseract.image_to_string(images[0]).upper()
+                            for search_key, original_name in search_index.items():
+                                if search_key in ocr_text:
+                                    found_name = original_name
+                                    break
+                    except: pass
+
+                # --- CONSTRUCT PDF ---
+                if i < len(ship_reader.pages):
+                    output_pdf.add_page(ship_reader.pages[i])
+                    processed_count += 1
+                
+                if found_name and found_name in mfg_map:
+                    # Add all manufacturing labels for this buyer
+                    for p in mfg_map[found_name]:
+                        output_pdf.add_page(p)
+                        matched_count += 1
+                    
+                    qc_tracker[found_name] = f"✅ MATCHED (Pg {i+1})"
+                    
+                    # Remove from map so we don't use it again (prevents duplicates)
+                    del mfg_map[found_name]
+                    # Also clean up the search index to prevent false positives later
+                    keys_to_remove = [k for k, v in search_index.items() if v == found_name]
+                    for k in keys_to_remove: del search_index[k]
+
+        # 3. Handle Orphans (Append un-matched labels at the end)
+        if len(mfg_map) > 0:
+            for buyer, pages in mfg_map.items():
+                for p in pages:
+                    output_pdf.add_page(p)
+                qc_tracker[buyer] = "⚠️ ORPHAN (Appended at end)"
+
         output_buffer = BytesIO()
         output_pdf.write(output_buffer)
         output_buffer.seek(0)
-        return output_buffer, len(seen_orders), sum(len(v) for v in shipping_to_mfg.values())
         
+        # Generate QC Dataframe
+        qc_data = [{"Buyer Name": name, "Status": status} for name, status in qc_tracker.items()]
+        qc_df = pd.DataFrame(qc_data).sort_values(by="Status", ascending=True)
+        
+        return output_buffer, processed_count, matched_count, qc_df
+
     except Exception as e:
-        st.error(f"Error merging labels: {str(e)}")
-        return None, 0, 0
+        st.error(f"Merge Error: {str(e)}")
+        return None, 0, 0, pd.DataFrame()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Streamlit UI
@@ -405,9 +471,10 @@ st.markdown("**Upload Amazon packing slip PDFs to generate manufacturing labels*
 uploaded_files = st.file_uploader("Upload PDF files", type=['pdf'], accept_multiple_files=True)
 
 if uploaded_files:
-    st.session_state['mfg_labels_pdf'] = None
-    st.session_state['gift_notes_pdf'] = None
-    st.session_state['merged_pdf'] = None
+    # Reset session state on new upload
+    if st.button("🔄 Reset / Reprocess Files"):
+        for key in ["mfg_labels_pdf", "gift_notes_pdf", "merged_pdf", "qc_rows", "qc_complete"]:
+            st.session_state[key] = None
 
     all_orders = []
     with st.spinner("Parsing PDFs..."):
@@ -438,10 +505,12 @@ if uploaded_files:
 
         tab1, tab2, tab3, tab4, tab5 = st.tabs([
             "📊 Table View","📋 Manufacturing Plan","🏷️ Manufacturing Labels",
-            "🎁 Gift Notes","🔗 Merge Ship + MFG"
+            "🎁 Gift Notes","🔗 Smart Merge (QC)"
         ])
 
+        # ─────────────────────────────────────────────────────────────────────
         # TAB 1: Table + Generate ALL
+        # ─────────────────────────────────────────────────────────────────────
         with tab1:
             display_df = df.drop(columns=['_order_obj','_item_obj'])
             st.dataframe(display_df, use_container_width=True, height=420)
@@ -474,10 +543,12 @@ if uploaded_files:
                                            "all_manufacturing_labels.pdf","application/pdf",
                                            use_container_width=True, key="dl_all")
 
+        # ─────────────────────────────────────────────────────────────────────
         # TAB 2: Manufacturing Plan
+        # ─────────────────────────────────────────────────────────────────────
         with tab2:
-            st.title("🏭 Manufacturing Plan - Color-Based Summary")
-            st.markdown("*6-pc sets = 2 production units (2× 3-pc sets)*")
+            st.title("🏭 Manufacturing Plan")
+            st.markdown("*6-pc sets = 2 production units*")
             
             df_mfg = df.copy()
             def units(r): return (int(r['Quantity']) * 2) if '6-pc' in r['Product Type'].lower() else int(r['Quantity'])
@@ -492,50 +563,25 @@ if uploaded_files:
             
             st.markdown("---")
             st.header("🎨 Production by Towel Color")
-            
             for towel_color in sorted(df_mfg['Color'].unique()):
                 color_df = df_mfg[df_mfg['Color'] == towel_color]
                 total_color_units = int(color_df['Mfg_Units'].sum())
-                
                 with st.expander(f"🎨 **{towel_color.upper()}** - {total_color_units} Production Units", expanded=True):
-                    st.markdown(f"### {towel_color.upper()}")
-                    product_summary = color_df.groupby('Product Type').agg({
-                        'Quantity': 'sum',
-                        'Mfg_Units': 'sum'
-                    }).sort_values('Product Type')
-                    
-                    for product_type, row in product_summary.iterrows():
-                        qty = int(row['Quantity'])
-                        prod_units = int(row['Mfg_Units'])
-                        
-                        if '6-pc' in product_type.lower():
-                            st.markdown(f"**6-pc Set:** {qty} sets ({prod_units} production units)")
-                        elif '3-pc' in product_type.lower():
-                            st.markdown(f"**3-pc Set:** {qty} sets")
-                        elif 'Bath Sheet' in product_type:
-                            st.markdown(f"**Bath Sheet (Oversized):** {qty} units")
-                        elif '2-pc Bath' in product_type:
-                            st.markdown(f"**2-pc Bath Towel:** {qty} sets")
-                        elif '2-pc Hand' in product_type:
-                            st.markdown(f"**2-pc Hand Towel:** {qty} sets")
-                        else:
-                            st.markdown(f"**{product_type}:** {qty} units")
-                    
-                    st.markdown(f"**TOTAL PRODUCTION UNITS: {total_color_units}**")
-                    st.markdown("---")
+                    st.dataframe(color_df[['Quantity','Product Type','Thread Color','Customizations']], use_container_width=True)
 
+        # ─────────────────────────────────────────────────────────────────────
         # TAB 3: Generate selected labels
+        # ─────────────────────────────────────────────────────────────────────
         with tab3:
             st.subheader("Manufacturing Labels")
             selected = []
             for idx, row in df.iterrows():
                 a,b = st.columns([0.1,0.9])
                 with a:
-                    if st.checkbox("", key=f"mfg_{idx}"):
-                        selected.append(idx)
+                    if st.checkbox("", key=f"mfg_{idx}"): selected.append(idx)
                 with b:
                     gift_indicator = " 🎁" if row['Gift Message'] == 'YES' else ""
-                    st.write(f"**{row['Order ID']}** — {row['Product Type']} — {row['Color']} — Qty: {row['Quantity']}{gift_indicator}")
+                    st.write(f"**{row['Buyer']}** — {row['Product Type']} — {row['Color']} — Qty: {row['Quantity']}{gift_indicator}")
             if selected:
                 if st.button("🖨️ Generate Selected Labels", type="primary"):
                     with st.spinner("Generating labels..."):
@@ -555,76 +601,90 @@ if uploaded_files:
                         c.save(); out.seek(0)
                         st.download_button("📥 Download Manufacturing Labels PDF", out.getvalue(),
                                            "manufacturing_labels.pdf", "application/pdf")
-                        st.success(f"✅ Generated {len(selected)} labels")
-            else:
-                st.info("Select items above to generate labels")
 
+        # ─────────────────────────────────────────────────────────────────────
         # TAB 4: Gift notes
+        # ─────────────────────────────────────────────────────────────────────
         with tab4:
             st.subheader("Gift Note Labels")
             gifts = df[df['Gift Message']=='YES']
             if gifts.empty:
                 st.info("No orders with gift messages found")
             else:
-                st.markdown(f"**{len(gifts)} orders with gift messages**")
-                chosen = []
-                for idx, row in gifts.iterrows():
-                    it = row['_item_obj']; a,b = st.columns([0.1,0.9])
-                    with a:
-                        if st.checkbox("", key=f"gift_{idx}"): chosen.append(idx)
-                    with b:
-                        with st.expander(f"**{row['Order ID']}** — {row['Buyer']}"):
-                            st.write(f"**Message:** {it['gift_message']}")
-                if chosen and st.button("🎁 Generate Selected Gift Notes", type="primary"):
-                    with st.spinner("Generating gift notes..."):
+                if st.button("🎁 Generate ALL Gift Notes", type="primary"):
+                    with st.spinner("Generating..."):
                         out = BytesIO(); c = canvas.Canvas(out, pagesize=landscape((4*inch,6*inch)))
-                        for idx in chosen:
-                            r = gifts.loc[idx]; o, it = r['_order_obj'], r['_item_obj']
+                        for idx, row in gifts.iterrows():
+                            o, it = row['_order_obj'], row['_item_obj']
                             generate_gift_note(c, o['order_id'], o['buyer_name'], it['gift_message'])
                             c.showPage()
                         c.save(); out.seek(0)
-                        st.session_state['gift_notes_pdf'] = out.getvalue()
-                        st.download_button("📥 Download Gift Notes PDF", out.getvalue(),
-                                           "gift_notes.pdf","application/pdf")
+                        st.download_button("📥 Download Gift Notes", out.getvalue(), "gift_notes.pdf", "application/pdf")
 
-        # TAB 5: SIMPLE MERGE
+        # ─────────────────────────────────────────────────────────────────────
+        # TAB 5: SMART MERGE (QC)
+        # ─────────────────────────────────────────────────────────────────────
         with tab5:
-            st.subheader("🔗 Merge Shipping Labels with Manufacturing Labels")
-            st.markdown(
-                """
-                **✨ Simple Merge Mode** This mode assumes you are uploading the **Shipping Labels PDF** (from Amazon) and the **Manufacturing Labels PDF** (generated here).  
-                It will place the Manufacturing Label immediately after the corresponding Shipping Label.
-                """
-            )
-            
-            c1, c2 = st.columns(2)
-            with c1:
-                ship_pdf = st.file_uploader("1. Upload Amazon Shipping Labels PDF", type=['pdf'], key="ship_up")
-            with c2:
-                # If we already generated manufacturing labels, offer to use them
-                if st.session_state['mfg_labels_pdf']:
-                    st.success("✅ Using generated Manufacturing Labels")
-                    mfg_pdf_bytes = st.session_state['mfg_labels_pdf']
-                else:
-                    mfg_pdf_up = st.file_uploader("2. Upload Manufacturing Labels PDF", type=['pdf'], key="mfg_up")
-                    mfg_pdf_bytes = mfg_pdf_up.read() if mfg_pdf_up else None
+            st.subheader("🔗 Smart Merge with Name Matching (Robust)")
+            st.info("Uses 'Buyer Name' to link Shipping Labels to Towel Manufacturing Labels.")
 
-            if ship_pdf and mfg_pdf_bytes:
-                if st.button("🔗 Merge Labels", type="primary"):
-                    with st.spinner("Merging PDFs..."):
-                        merged, count_s, count_m = merge_shipping_and_manufacturing_labels_simple(
-                            ship_pdf, 
-                            BytesIO(mfg_pdf_bytes),
-                            df # We need the dataframe to know how many items per order
-                        )
-                        
-                        if merged:
-                            st.success(f"✅ Successfully merged {count_s} shipping labels with {count_m} manufacturing labels!")
-                            st.session_state['merged_pdf'] = merged.getvalue()
-                            st.download_button(
-                                "📥 Download Merged PDF", 
-                                st.session_state['merged_pdf'], 
-                                "shipping_and_manufacturing_merged.pdf", 
-                                "application/pdf",
-                                use_container_width=True
+            ship_pdf = st.file_uploader("1️⃣ Upload Shipping Labels PDF", type=["pdf"], key="ship_pdf_qc")
+            
+            if ship_pdf:
+                # Check if mfg labels generated yet
+                if st.session_state['mfg_labels_pdf'] is None:
+                    st.warning("⚠️ Please go to Tab 1 and click 'Generate ALL Manufacturing Labels' first.")
+                else:
+                    if st.button("2️⃣ Analyze, Match & Merge", type="primary"):
+                        with st.spinner("Running Name Matching Algorithm..."):
+                            
+                            merged_buffer, n_ship, n_match, qc_df = robust_merge_by_buyer_name(
+                                ship_pdf,
+                                BytesIO(st.session_state['mfg_labels_pdf']),
+                                df
                             )
+                            
+                            if merged_buffer:
+                                st.session_state.merged_pdf = merged_buffer.getvalue()
+                                st.session_state.qc_rows = qc_df
+                                st.session_state.qc_complete = True
+            
+            if st.session_state.get('qc_complete'):
+                st.write("### 🧐 QC Results")
+                
+                # Metrics
+                qc_df = st.session_state.qc_rows
+                n_total = len(qc_df)
+                n_matched = len(qc_df[qc_df['Status'].str.contains("MATCHED")])
+                n_missing = len(qc_df[qc_df['Status'].str.contains("MISSING")])
+                n_orphan = len(qc_df[qc_df['Status'].str.contains("ORPHAN")])
+                
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Total Buyers", n_total)
+                c2.metric("Matched", n_matched)
+                c3.metric("Missing/Issues", n_missing + n_orphan, delta_color="inverse")
+
+                # Status Highlighting
+                def highlight_status(val):
+                    if "MATCHED" in val: return "background-color: #d4edda; color: #155724" # Green
+                    if "ORPHAN" in val: return "background-color: #fff3cd; color: #856404" # Yellow
+                    return "background-color: #f8d7da; color: #721c24" # Red
+
+                st.dataframe(qc_df.style.applymap(highlight_status, subset=['Status']), use_container_width=True)
+
+                if n_missing > 0:
+                    st.error("⚠️ Some shipping labels could not be matched to orders. Check the table above.")
+                
+                st.markdown("---")
+                st.success("✅ Merge Complete!")
+                st.download_button(
+                    "📥 Download Final Merged PDF", 
+                    st.session_state.merged_pdf, 
+                    "FINAL_MERGED_TOWELS.pdf", 
+                    "application/pdf",
+                    type="primary",
+                    use_container_width=True
+                )
+
+else:
+    st.info("👆 Upload PDF files (packing slips) to get started")

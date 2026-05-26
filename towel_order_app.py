@@ -670,8 +670,7 @@ if uploaded_files:
                     if "ORPHAN" in val: return "background-color: #fff3cd; color: #856404" # Yellow
                     return "background-color: #f8d7da; color: #721c24" # Red
 
-                st.dataframe(qc_df.style.applymap(highlight_status, subset=['Status']), use_container_width=True)
-
+               st.dataframe(qc_df.style.map(highlight_status, subset=['Status']), use_container_width=True)
                 if n_missing > 0:
                     st.error("⚠️ Some shipping labels could not be matched to orders. Check the table above.")
                 
